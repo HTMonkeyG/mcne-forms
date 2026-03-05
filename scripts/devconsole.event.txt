@@ -1,0 +1,44 @@
+// ----------------------------------------------------------------------------
+// # DevConsole
+// Execute commands with MCNE DevConsole.
+// example: 
+//   `#console /op @a`
+// Commands can only be executed when the executor is operator.
+// ----------------------------------------------------------------------------
+
+#event ServerChatEvent
+
+#pragma escapecvt(false)
+
+#srcBegin
+
+if {func, maps.get(args, 'cancel')}:
+  return;
+fi
+
+sourcePlayer = {func, maps.get(args, 'playerId')}
+
+if not {func, maps.get({func, player.GetPlayerAbilities(sourcePlayer)}, 'op')}:
+  return;
+fi
+
+content = {func, maps.get(args, 'message')}
+contentLen = {func, strings.length(content)}
+cmdStr = ''
+
+if contentLen > 9 and {func, strings.sub(content, 0, 9)} == '#console ':
+  cmdStr = {func, strings.sub(content, 9, contentLen)}
+  cmdDisp = {func, strings.replace(cmdStr, '\\\\', '\\\\\\\\', -1)}
+  cmdDisp = {func, strings.replace(cmdStr, '\\\"', '\\\\\\\"', -1)}\
+
+  {func, command.fast_set(sourcePlayer, False)}
+  if {command, cmdStr}:
+    {command, 'tellraw @s {\"rawtext\":[{\"text\":\"§o§7[@: Executed \\\\\\\"' + cmdDisp + '\\\\\\\" as dev console.]\"}]}'}
+  else:
+    {command, 'tellraw @s {\"rawtext\":[{\"text\":\"§o§7[@: §cExecute command failed.§7]\"}]}'}
+  fi
+
+  return {func, maps.set(args, 'cancel', True)}
+fi
+
+#srcEnd

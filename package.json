@@ -1,0 +1,19 @@
+{
+  "name": "mcne-forms",
+  "version": "1.0.0",
+  "description": "基于[nemc-form-script](https://github.com/Happy2018new/nemc-form-script)脚本语法及[CBLDL规范](https://github.com/HTMonkeyG/CBLDL)的联机房间管理适用指令系统与程序。",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HTMonkeyG/mcne-forms.git"
+  },
+  "author": "HTMonkeyG",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/HTMonkeyG/mcne-forms/issues"
+  },
+  "homepage": "https://github.com/HTMonkeyG/mcne-forms#readme"
+}
