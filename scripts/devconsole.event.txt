@@ -6,19 +6,19 @@
 // Commands can only be executed when the executor is operator.
 // ----------------------------------------------------------------------------
 
-#event ServerChatEvent
-
 #pragma escapecvt(false)
 
-#srcBegin
+#event ServerChatEvent
 
 if {func, maps.get(args, 'cancel')}:
+  // If the event is cancelled, directly return.
   return;
 fi
 
 sourcePlayer = {func, maps.get(args, 'playerId')}
 
 if not {func, maps.get({func, player.GetPlayerAbilities(sourcePlayer)}, 'op')}:
+  // Return when the player is not an operator.
   return;
 fi
 
@@ -27,9 +27,10 @@ contentLen = {func, strings.length(content)}
 cmdStr = ''
 
 if contentLen > 9 and {func, strings.sub(content, 0, 9)} == '#console ':
+  // Command string.
   cmdStr = {func, strings.sub(content, 9, contentLen)}
   cmdDisp = {func, strings.replace(cmdStr, '\\\\', '\\\\\\\\', -1)}
-  cmdDisp = {func, strings.replace(cmdStr, '\\\"', '\\\\\\\"', -1)}\
+  cmdDisp = {func, strings.replace(cmdStr, '\\\"', '\\\\\\\"', -1)}
 
   {func, command.fast_set(sourcePlayer, False)}
   if {command, cmdStr}:
@@ -41,4 +42,4 @@ if contentLen > 9 and {func, strings.sub(content, 0, 9)} == '#console ':
   return {func, maps.set(args, 'cancel', True)}
 fi
 
-#srcEnd
+#endevent
