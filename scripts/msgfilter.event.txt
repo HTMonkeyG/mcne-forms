@@ -1,0 +1,39 @@
+// ----------------------------------------------------------------------------
+// # MsgLenLimit
+// Intercept too long messages and change to an alert.
+// ----------------------------------------------------------------------------
+
+//#define MSG_LEN 200
+//#define ALERT_CONTENT '§c<Intercepted message.>'
+
+#pragma escapecvt(false)
+
+#event ServerChatEvent
+
+if {func, maps.get(args, 'cancel')}:
+  // If the event is cancelled, directly return.
+  return 0
+fi
+
+sourcePlayer = {func, maps.get(args, 'playerId')}
+
+if {func, maps.get({func, player.GetPlayerAbilities(sourcePlayer)}, 'op')}:
+  // Return when the player is an operator.
+  return 0
+fi
+
+content = {func, maps.get(args, 'message')}
+contentLen = {func, strings.length(content)}
+
+if contentLen > MSG_LEN:
+  return {func, maps.set(args, 'message', ALERT_CONTENT)}
+fi
+
+for i, contentLen:
+  codepoint = {func, strings.ord({func, strings.sub(content, i, i + 1)})}
+  if codepoint >= 57344 and codepoint <= 63743:
+    return {func, maps.set(args, 'message', ALERT_CONTENT)}
+  fi
+rof
+
+#endevent

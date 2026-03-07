@@ -12,14 +12,14 @@
 
 if {func, maps.get(args, 'cancel')}:
   // If the event is cancelled, directly return.
-  return;
+  return 0
 fi
 
 sourcePlayer = {func, maps.get(args, 'playerId')}
 
 if not {func, maps.get({func, player.GetPlayerAbilities(sourcePlayer)}, 'op')}:
   // Return when the player is not an operator.
-  return;
+  return 0
 fi
 
 content = {func, maps.get(args, 'message')}
