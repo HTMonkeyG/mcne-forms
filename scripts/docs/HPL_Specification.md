@@ -74,6 +74,7 @@
    - [5.23 方块 (`block.*`)](#523-方块-block)
    - [5.24 物品 (`item.*`)](#524-物品-item)
    - [5.25 杂项工具 (`utils.*`)](#525-杂项工具-utils)
+   - [5.26 编译缓存 (`compile.*`)](#526-编译缓存-compile)
 6. [附录](#6-附录)
    - [6.1 运算符优先级总表](#61-运算符优先级总表)
    - [6.2 完整字节码指令集](#62-完整字节码指令集)
@@ -92,6 +93,19 @@ NEMC Form Script 是一门嵌入在网易 Minecraft 基岩版（NEMC）中的动
 
 语言风格上借鉴了 Python 的缩进语法（使用 `if/fi` 和 `for/rof` 作为块定界符），数据类型系统参考了 Python 的基本类型。
 
+### 表单类型简述
+
+该语言运行于 Minecraft 表单的上下文中。NEMC 支持三种表单类型：
+
+| 表单类型 | 底层响应数据 | `{ref, type, -1}` 行为 | `{ref, type, n}` (n ≥ 0) 行为 |
+|---------|-------------|------------------------|-------------------------------|
+| **模态表单** (Modal) | `list`（各控件响应值） | ❌ 不允许（`index < 0` 报错） | 返回 `response[n]`（第 `n` 个控件的值） |
+| **长表单** (Long) | `int`（被点击按钮的索引） | 返回按钮索引值 | 返回 `n == response`（判断第 `n` 个按钮是否被点击） |
+| **信息表单** (Popup) | `bool`（`True`=确认, `False`=取消） | 返回 `True`/`False` | 返回 `n == int(response)` |
+| **表单关闭** (Cancel) | `int`（关闭原因码：0/1/2） | 返回关闭原因码 | 返回 `n == response` |
+
+> 详见 [3.2.6 花括号语句求值过程](#326-花括号语句求值过程) 中 `{ref, ...}` 的完整说明（含 `FormRefProcesser.ref()` 底层逻辑）。
+
 ### 核心设计约束
 
 - 所有代码**逐行编写**，使用换行符或 `|` 符号分隔语句
@@ -106,7 +120,7 @@ NEMC Form Script 是一门嵌入在网易 Minecraft 基岩版（NEMC）中的动
 
 ### 2.1 字符集与编码
 
-源代码使用 **UTF-8** 编码。源代码中的字符串字面量支持 Unicode 转义（`\uXXXX` 形式暂不支持，仅支持对反斜杠后 1 个字符进行转义）。
+源代码使用 **UTF-8** 编码。字符串字面量中的转义序列由 Python 的 `unicode_escape` 解码器处理（具体支持的转义序列见 [2.7 字符串字面量](#27-字面量)）。
 
 ### 2.2 空白字符
 
@@ -137,7 +151,13 @@ c=2
 
 ### 2.4 注释
 
-本语言**不支持注释**。源代码中的所有字符都将被解析。
+本语言**不支持注释**。源代码中的所有字符都将被解析。没有注释语法——既不存在行注释（如 `#` 或 `//`），也不存在块注释（如 `/* ... */`）。
+
+若在代码中使用了 `#` 等未被定义为运算符或分隔符的字符，词法分析器会将其视为普通标识符的一部分进行解析，最终导致语法错误或表达式解析失败。
+
+> **容易出错的情况**：从 Python 等语言迁移的用户可能会习惯性地使用 `#` 书写行注释。在 NEMC Form Script 中，`#` 不是注释符——它会被当作标识符的一部分，导致不可预期的解析错误。请确保实际代码中不包含任何注释。
+
+> **本文档中的示例**：本文档中部分代码示例和"执行追踪"块中出现了 `#` 符号——这些是**对读者的注释说明**，并非 NEMC Form Script 代码的一部分。实际编写的代码中不可使用 `#`。
 
 ### 2.5 关键字
 
@@ -232,20 +252,32 @@ c=2
 
 #### 字符串字面量
 
-由单引号 `'` 包裹的字符序列。支持的转义符：
+由单引号 `'` 包裹的字符序列。当词法分析器在字符串中遇到反斜杠 `\` 时，会将 `\` 及其后**一个字符**组合，经 UTF-8 编码后再通过 Python 的 `unicode_escape` 解码器处理。这意味着**仅单字符转义序列**有效：
 
 | 转义序列 | 结果 |
 |----------|------|
-| `\n` | 换行 |
 | `\\` | 反斜杠 `\` |
 | `\'` | 单引号 `'` |
 | `\"` | 双引号 `"` |
+| `\n` | 换行 (LF) |
+| `\t` | 制表符 (TAB) |
+| `\r` | 回车 (CR) |
+| `\a` | 响铃 (BEL) |
+| `\b` | 退格 (BS) |
+| `\f` | 换页 (FF) |
+| `\v` | 垂直制表 (VT) |
+| `\0` | 空字符 (NUL) |
+
+> **注意**：由于实现只读取 `\` 后的一个字符，**多字符转义序列（`\xNN`、`\uNNNN`、`\UNNNNNNNN`、八进制 `\NNN`）不可用**。若在源代码中书写 `'\x41'`，解析器会将 `\x` 作为转义序列读取（而 `\x` 是无效转义），剩余的 `41` 作为普通字符，最终在运行时抛出 `UnicodeDecodeError`。
+
+> **向 Unicode 字符的代替方案**：由于 `\u` 转义不可用，如需在字符串中包含非 ASCII 字符（如中文），直接在源代码中使用 UTF-8 编码书写即可：`'你好，世界'`。
 
 ```
 'hello'
 '你好，世界'
 '包含\'引号\'的字符串'
 '换行\n第二行'
+'制表符\t分隔'
 ```
 
 #### 布尔字面量
@@ -273,7 +305,7 @@ c=2
 | `)` | `TOKEN_ID_RIGHT_BRACKET` | 圆括号结束 |
 | `,` | `TOKEN_ID_COMMA` | 逗号分隔 |
 | `:` | `TOKEN_ID_COLON` | 冒号（条件/循环声明） |
-| `!` | `TOKEN_ID_EXCLAMATION` | 感叹号（不等运算符的一部分） |
+| `!` | `TOKEN_ID_EXCLAMATION` | 感叹号，仅用于 `!=`（不等运算符），无独立的逻辑取反语义 |
 
 ### 2.9 Token 完整列表
 
@@ -337,8 +369,7 @@ c=2
 5. **比较运算** (`==`, `!=`, `<`, `>`, `<=`, `>=`)
 6. **加减法** (`+`, `-`)
 7. **乘除法** (`*`, `/`)
-8. **一元运算**（负号、`not`）
-9. **原子表达式**（字面量、变量、括号、花括号语句、类型转换）
+8. **原子表达式**（字面量、变量、括号、花括号语句、类型转换）
 
 #### 3.2.2 原子表达式
 
@@ -376,6 +407,8 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 
 其中 `类型关键字` 为 `int`、`bool`、`float`、`str` 之一。
 
+> **关于 `{func, ...}` 的函数名**：函数名使用点号分隔的模块路径（如 `math.sqrt`、`strings.length`），这与变量名不同——变量名不可含点号。函数名在词法分析阶段被解析为 `TOKEN_ID_WORD`（负载为完整的带点号字符串），由 `{func, ...}` 语句的解析器识别，而非表达式的变量名解析逻辑。在编译阶段，函数名以字符串形式存入字节码，在运行时由 `BuiltInFunction` 查找对应的 Python 函数。
+
 #### 3.2.3 算术运算
 
 ```
@@ -385,15 +418,17 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 
 - `+`：加法（数字）或字符串拼接
 - `-`：减法
-- `*`：乘法（数字）或字符串重复
+- `*`：乘法（数字）或字符串重复（`'a' * 3` 和 `3 * 'a'` 均产生 `'aaa'`）
 - `/`：除法（结果恒为浮点数）
 
 运算符为**左结合**。优先级：`*` `/` > `+` `-`。
 
-正负号处理：当 `+` 或 `-` 出现在表达式开头或紧跟运算符时，编译器会自动补 `0` 作为左操作数：
+正负号处理：当 `+` 或 `-` 出现在表达式开头或紧跟另一运算符后时，编译器会自动在左侧补 `0` 作为左操作数。这意味着一元正负号可在多种上下文使用：
 
 - `-5` → `0 - 5`
 - `+3` → `0 + 3`
+- `5 * -3` → `5 * (0 - 3)`（`*` 后的 `-` 自动补零）
+- `a + -b` → `a + (0 - b)`
 
 #### 3.2.4 比较运算
 
@@ -423,6 +458,8 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 #### 3.2.6 花括号语句求值过程
 
 花括号语句 `{...}` 是语言与 Minecraft 游戏引擎交互的核心机制。以下逐一说明每种花括号语句的运行时求值过程。
+
+> **重要约束**：`{...}` 语句内部不可换行（`\n` 和 `|` 在花括号内均被视为语法错误）。整个 `{...}` 必须书写在单行中。
 
 **`{selector, <target>}`**
 
@@ -466,22 +503,38 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 
 **`{ref, <type>, <index>}`**
 
-1. 对 `<index>` 表达式求值，得到一个整数
-2. 调用表单响应引用接口，获取对应索引上的用户响应值
+`{ref, ...}` **仅在表单响应回调上下文中可用**（即表单提交/关闭时执行的代码）。在其他上下文中调用会抛出运行时错误。
+
+1. 对 `<index>` 表达式求值，得到一个整数（`bool` 会被拒绝）
+2. 调用表单响应引用接口 `FormRefProcesser.ref(index)`，其行为取决于当前表单类型：
+
+   - **模态表单**（`response` 为列表）：
+     - `index >= 0`：返回 `response[index]`（第 `index` 个控件的响应值）
+     - `index < 0` 或越界：抛出运行时错误
+   - **长表单**（`response` 为 `int`，即按钮索引）：
+     - `index == -1`：直接返回按钮索引
+     - `index >= 0`：返回 `index == response`（即判断"第 `index` 个按钮是否被点击"）
+   - **信息表单**（`response` 为 `bool`）：
+     - `index == -1`：直接返回 `True`（确认）或 `False`（取消）
+     - `index >= 0`：返回 `index == int(response)`（`int(True)=1`，`int(False)=0`）
+   - **表单被关闭**（`response` 为取消原因码 `int`）：
+     - 走长表单的相同路径：`index == -1` 返回原因码，`index >= 0` 返回 `index == response`
+
 3. 对返回值进行类型断言：必须与 `<type>` 声明的类型一致，否则抛出运行时错误
 4. 返回断言通过的值
 
-对于**模态表单**，`index >= 0` 时直接返回响应列表中第 `index` 个元素的值。对于**长表单**和**信息表单**：
-- `index == -1`：直接返回原始响应值（长表单返回点击的按钮索引，信息表单返回 `True`/`False`，关闭原因返回整数）
-- `index >= 0`：返回 `index == 原始值` 的布尔结果
+```
+{ref, int, 3}     → 模态表单：返回第 4 个控件的响应（断言为 int）
+{ref, bool, -1}   → 信息表单：返回 True/False
+{ref, int, -1}    → 返回原始响应值（模态表单不允许；长表单返回按钮索引；信息表单返回 1/0；关闭时返回原因码）
+{ref, bool, 0}    → 长表单：返回"第 0 个按钮是否被点击"的布尔结果
+```
 
-```
-{ref, int, 3}     → 返回模态表单第 4 个元素的响应（断言为 int）
-{ref, bool, -1}   → 返回信息表单的原始布尔响应
-{ref, int, -1}    → 返回表单关闭原因的整数值
-```
+> **注意**：`{ref, type, index}` 中 `<type>` 的类型断言是编译时确定的，运行时仅做校验。如果 `<type>` 与实际返回值类型不匹配（如对信息表单使用 `{ref, int, -1}` 却得到 `False`），程序会抛出类型断言错误。对信息表单应使用 `{ref, int, -1}` 来获取 `1` 或 `0`（因为底层走 `int(True)=1`/`int(False)=0` 路径）——但需注意，这是取巧的办法，并非设计本意。推荐的做法是在信息表单中使用 `{ref, bool, -1}`。
 
 **`{func, <name>(<arg1>, <arg2>, ...)}`**
+
+> **语法要点**：`func` 后必须紧跟**逗号**（`,`），然后才是函数名。即 `{func, 函数名(参数...)}`，而非 `{func 函数名(参数...)}`。
 
 1. 按顺序对每个参数表达式 `<arg1>`, `<arg2>`, ... 求值
 2. 根据 `<name>` 在内建函数注册表中查找对应函数
@@ -489,10 +542,16 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 4. 校验返回值：必须是四种基础类型之一（`int`/`bool`/`float`/`str`），否则抛出错误
 5. 返回该值
 
+`<name>` 可以是带点号的模块路径（如 `math.sqrt`、`strings.split`）——点号在词法分析阶段被当作普通字符，因此 `math.sqrt` 被解析为单个 `TOKEN_ID_WORD`（负载为完整字符串 `"math.sqrt"`）。`<name>` 也可以是类型关键字（`int`、`bool`、`float`、`str`）——此时其效果等同于对应的强制类型转换。注意二者会被编译为不同的字节码——`int(x)` 使用 `HANDLE_CAST` 指令，而 `{func, int(x)}` 使用 `HANDLE_FUNC` 指令——但最终调用的都是 Python 的 `int()` 函数，运行时效果**完全等价**。
+
+> **可用函数列表**：所有可用的内建函数（即 `<name>` 的合法取值）见 [第 5 章 内建库函数](#5-内建库函数)。
+
 ```
 {func, math.sqrt(4)}               → 2.0
 {func, math.pow(2, 3)}             → 8.0
 {func, strings.length('hello')}    → 5
+{func, int(3.14)}                  → 3  （等价于 int(3.14)，效果相同但字节码不同）
+{func, str(100)}                   → '100' （等价于 str(100)）
 ```
 
 #### 3.2.7 表达式求值过程
@@ -642,16 +701,18 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 
 #### 3.2.8 解析上下文
 
-表达式解析器根据所处位置使用不同的上下文位掩码（Context Bitmask）：
+表达式解析器根据所处位置使用不同的上下文位掩码（Context Bitmask）。不同上下文决定了可用的终止符和允许的语法结构：
 
-| 上下文 | 掩码 | 允许的终止符 |
-|--------|------|-------------|
-| `CONTEXT_PARSE_ASSIGN` | `1 << 0` | `\n`, `\|` |
-| `CONTEXT_PARSE_IF` | `1 << 1` | `\n`, `\|`, `:` |
-| `CONTEXT_PARSE_FOR` | `1 << 2` | `\n`, `\|`, `:` |
-| `CONTEXT_PARSE_ARGUMENT` | `1 << 3` | `,`, `)` |
-| `CONTEXT_PARSE_SUB_EXPR` | `1 << 4` | `)` |
-| `CONTEXT_PARSE_BARRIER` | `1 << 5` | `}` |
+| 上下文 | 掩码 | 使用场景 | 允许的终止符 |
+|--------|------|---------|-------------|
+| `CONTEXT_PARSE_ASSIGN` | `1 << 0` | 赋值语句 `a = ...`、表达式语句、`return ...` | `\n`, `\|` |
+| `CONTEXT_PARSE_IF` | `1 << 1` | `if ... :`、`elif ... :` 的条件部分 | `\n`, `\|`, `:` |
+| `CONTEXT_PARSE_FOR` | `1 << 2` | `for var, ... :` 的循环次数部分 | `\n`, `\|`, `:` |
+| `CONTEXT_PARSE_ARGUMENT` | `1 << 3` | `{func, name(...)}` 的函数参数 | `,`, `)` |
+| `CONTEXT_PARSE_SUB_EXPR` | `1 << 4` | `(...)` 圆括号内、`int(...)` 等强制转换内 | `)` |
+| `CONTEXT_PARSE_BARRIER` | `1 << 5` | `{...}` 花括号语句的内部表达式 | `}` |
+
+例如，在 `a = 1 + 2` 中使用 `CONTEXT_PARSE_ASSIGN`，表达式遇到 `\n` 时终止。在 `{func, math.pow(2, 3)}` 中，`2` 和 `3` 分别在 `CONTEXT_PARSE_ARGUMENT` 上下文中解析，遇到 `,` 或 `)` 时终止。在 `{selector, '@p'}` 中，`'@p'` 在 `CONTEXT_PARSE_BARRIER` 上下文中解析，遇到 `}` 时终止。
 
 表达式解析完成后，通过 `compact_operator` 方法进行**运算符紧缩**，将连续的平级运算符折叠到单个表达式元素中：
 
@@ -914,9 +975,10 @@ fi
 
 **关键规则**：
 - 循环变量在循环体内可通过赋值语句修改
-- 循环变量可以是 `_`（语义约定：表示不使用循环变量值）
+- 循环变量可以是 `_`（语义约定：表示不使用循环变量值）。注意 `_` 是合法的变量名，在循环体内仍然可以通过 `_` 读取当前的循环计数值
 - 循环可以嵌套；`continue` 和 `break` 只作用于最内层循环
-- 循环次数为 0 或负数时，循环体不执行
+- 循环次数为 0 或负数时，循环体**不执行**（循环变量初始值 `0 < N` 不成立，直接跳过循环体）
+- 循环次数必须是 `int` 类型（`bool` 也会被拒绝，因为运行时额外检查了 `isinstance(temp, bool)`）
 
 **执行示例 1——基本循环**：
 
@@ -1126,7 +1188,15 @@ fi
 最终变量状态: a = 100, b = 0
 ```
 
-**无 return 时的返回值**：若程序执行完毕没有遇到 `return`，则以最后一次表达式语句的结果作为返回值。若两者都没有且 `require_return` 为真，抛出 `No return value after running the code` 错误。
+**无 `return` 时的返回值**：若程序执行完毕没有遇到 `return`，则以最后一次表达式语句的结果作为返回值。
+
+**关于 `require_return`**：这是 `CodeRunner.running()` 的运行时参数（默认 `True`），由调用方控制：
+- 当 `require_return=True`（默认）：若程序执行完毕无 `return` 且无任何表达式语句（即 `result` 寄存器为 `None`），抛出 `No return value after running the code` 错误
+- 当 `require_return=False`：允许代码不产生返回值（`result` 为 `None` 时直接返回 `None`）
+
+在实际使用中：
+- 通过命令直接执行的代码（`run_code`）默认 `require_return=True`，因此用户代码通常需要产生返回值
+- 自定义函数（`utils.async_run_func` 的回调）、表单回调（`onsubmit`/`oncancel`/`onerror`）、事件监听器中的代码以 `require_return=False` 执行，可以不产生返回值
 
 ### 3.4 抽象语法树
 
@@ -1183,14 +1253,14 @@ fi
 | `int('5.99')` | 报错 | 浮点字符串不能直接转整数 |
 | `int('a')` | 报错 | 非数字字符串 |
 
-**`bool(expr)`**：对 `expr` 求值，将结果转换为布尔值。
+**`bool(expr)`**：对 `expr` 求值，将结果转换为布尔值。底层直接调用 Python 的 `bool()`。
 
 | 输入 | 输出 | 规则 |
 |------|------|------|
-| `bool(0)` / `bool(0.0)` / `bool(False)` | `False` | 仅 `0`/`0.0`/`False` 为假 |
-| `bool(1)` / `bool(2.5)` / `bool('')` / `bool('hello')` | `True` | 其余全部为真 |
+| `bool(0)` / `bool(0.0)` / `bool(False)` / `bool('')` | `False` | 零值、空字符串、`False` 为假 |
+| `bool(1)` / `bool(2.5)` / `bool('hello')` / `bool('0')` | `True` | 其余非零、非空值均为真 |
 
-**注意**：与 Python 不同，空字符串 `bool('')` 返回 `True`。这是因为 Python 的 `bool()` 对非空/非零对象均返回 `True`，而空字符串在 Python 中 `bool('')` 为 `False`，但在此语言实现中 `bool()` 底层直接调用 Python `bool()`，空字符串不为零值故也为 `True`。
+**注意**：与 Python 一致，空字符串 `bool('')` 返回 `False`。由于底层实现直接调用 Python 的 `bool()`，其行为与 Python 完全相同：`0`、`0.0`、`False`、`''`（空字符串）均为假值，其余均为真值。
 
 **`float(expr)`**：对 `expr` 求值，将结果转换为浮点数。
 
@@ -1218,7 +1288,7 @@ fi
 | `+` `-` `*`（数字） | 若所有操作数均为 `int`，结果为 `int`；任一为 `float` 则结果为 `float` |
 | `/` | 结果恒为 `float` |
 | `+`（字符串） | 操作数必须都是 `str`，结果为 `str` |
-| `*`（字符串重复） | 左侧 `str`，右侧 `int`，结果为 `str` |
+| `*`（字符串重复） | 一个操作数为 `str`，另一个为 `int`，结果为 `str`。`'a' * 3` 和 `3 * 'a'` 效果相同 |
 
 #### 3.5.4 运行时类型校验
 
@@ -1278,8 +1348,7 @@ A or B or C or ...:
 9+9>1000 and 7/7==1 and not 'gbk' in 'ggbbkk'
 ```
 
-全部为 `False`，但每个操作数都被求值（因为没有提前遇到短路条件）。
-- `9+9>1000` → `18>1000` → `False` → 短路，后两个不再求值。
+`9+9>1000` → `18>1000` → `False`。由于第一个操作数即为 `False`，`and` 短路，后续两个操作数 `7/7==1` 和 `not 'gbk' in 'ggbbkk'` 不再求值。最终结果为 `False`。
 
 ### 3.7 变量映射与作用域
 
@@ -1317,6 +1386,11 @@ variables: list[int | bool | float | str | None] = [None] * vars_len
 - 循环变量在循环体内可被读取和修改
 - 无局部作用域或块级作用域
 - 变量生命周期与程序执行周期一致
+
+**实际影响**：
+- 语言**不支持用户自定义函数**（函数的定义/调用语法不存在），因此不存在函数作用域。代码复用通过 `utils.async_run_func`（别名 `gofn`）以异步回调方式间接实现
+- 嵌套循环中使用相同循环变量名时，内层循环**会覆盖**外层循环的变量值（因为共享同一个变量索引）。建议嵌套循环使用不同的循环变量名以避免混淆
+- 在 `if`/`for` 块中首次赋值的变量，在块外仍然可见和可用
 
 ### 3.8 错误处理
 
@@ -1524,10 +1598,12 @@ AST (list[OpcodeBase])
 |----|------|
 | 0 | `COMPARE_TYPE_EQUAL`（==） |
 | 1 | `COMPARE_TYPE_NOT_EQUAL`（!=） |
-| 2 | `COMPARE_TYPE_LESS_THAN`（<，注意栈顺序为 `a > b`） |
-| 3 | `COMPARE_TYPE_GREATER_THAN`（>，注意栈顺序为 `a < b`） |
+| 2 | `COMPARE_TYPE_LESS_THAN`（<） |
+| 3 | `COMPARE_TYPE_GREATER_THAN`（>） |
 | 4 | `COMPARE_TYPE_LESS_EQUAL`（<=） |
 | 5 | `COMPARE_TYPE_GREATER_EQUAL`（>=） |
+
+> **注意**：由于栈操作顺序（右操作数先弹出），`COMPARE_TYPE_LESS_THAN`（<）在实现中编为 `_push(_pop() > _pop())`，而 `COMPARE_TYPE_GREATER_THAN`（>）编为 `_push(_pop() < _pop())`——即比较子类型与对应的 Python 比较方向相反。这是内部实现细节，不影响用户层面的正确性。
 
 **游戏交互子类型**：
 
@@ -1597,8 +1673,10 @@ else:
 
 内建函数分为两类：
 
-- **静态内建函数**：`static` 字典中的函数，只要 NEMC 接口组件可用即生效，不依赖特定模组系统实例
-- **动态内建函数**：`dynamic` 字典中的函数，依赖 `ServerSystem` 实例，需要模组实际运行时可用
+- **静态内建函数**（Sections 5.1–5.17）：只要语言运行时初始化完成即可使用，不依赖模组的 `ServerSystem` 实例。包括对象管理、数据结构（切片/映射/元组/集合）、字符串、数学、随机数、JSON、时间日期等通用功能
+- **动态内建函数**（Sections 5.18–5.25）：依赖 `ServerSystem` 实例，仅在模组实际运行时可用。包括命令上下文、事件系统、世界操作、实体/玩家/方块/物品管理等与 Minecraft 游戏引擎交互的功能
+
+此外还有少量**编译器级函数**（Section 5.26），由 `CompileCache` 提供，用于管理代码编译缓存。
 
 ### 调用约定
 
@@ -1628,6 +1706,26 @@ else:
 ### 指针系统
 
 超出四种基础类型的对象（如切片、映射、UUID 等）通过**指针系统**管理。指针是一个 32 位有符号整数（范围 `[-2³¹, 2³¹-1]`，排除 0）。对象由 `object.ref` 或专用构造函数创建并分配指针，之后通过指针访问对象。未被 `pin` 固定的对象在代码执行结束后自动释放。
+
+**典型使用模式**：
+
+```
+# 创建一个切片，获得指向它的指针
+slice_ptr = {func, slices.new(1, 2, 3)}
+# 通过指针操作切片
+{func, slices.append(slice_ptr, 4)}
+len = {func, slices.length(slice_ptr)}
+# 使用完毕后释放（可选，不释放则在代码结束后自动回收）
+{func, object.release(slice_ptr)}
+```
+
+对于需要在多次代码执行间保持的对象（如跨表单页面共享的数据），可使用 `object.pin` 固定对象，防止被自动回收。
+
+```
+shared_data = {func, maps.new()}
+{func, object.pin(shared_data)}
+# shared_data 现在不会被自动回收，可跨执行保持
+```
 
 ### 返回值约束
 
@@ -2322,7 +2420,22 @@ else:
 
 ### 5.17 通用时间 (`common_time.*`)
 
-（具体函数列表从代码中推导——与 `time.*` 模块交互的辅助函数）
+`common_time` 模块是 `time` 模块的别名。两者底层使用相同的 `Time` 类实现，因此 `common_time.*` 下的所有函数与 `time.*` 完全等价。
+
+> **推荐用法**：直接使用 `time.*` 前缀调用时间相关函数。`common_time.*` 的存在仅为兼容目的。
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `common_time.time` | 无 | `float` | 同 `time.time`，返回当前 Unix 时间戳 |
+| `common_time.ctime` | `[secs: float]` | `str` | 同 `time.ctime` |
+| `common_time.asctime` | `[t: int]` | `str` | 同 `time.asctime` |
+| `common_time.gmtime` | `[secs: float]` | `int` | 同 `time.gmtime` |
+| `common_time.localtime` | `[secs: float]` | `int` | 同 `time.localtime` |
+| `common_time.mktime` | `ptr: int` | `float` | 同 `time.mktime` |
+| `common_time.strftime` | `format: str[, ptr: int]` | `str` | 同 `time.strftime` |
+| `common_time.strptime` | `string: str, format: str` | `int` | 同 `time.strptime` |
+| `common_time.timezone` | 无 | `int` | 同 `time.timezone` |
+| `common_time.tzname` | 无 | `int` | 同 `time.tzname` |
 
 ### 5.18 命令执行上下文 (`command.*`)
 
@@ -2396,30 +2509,37 @@ else:
 
 | 函数 | 参数类型 | 返回值 | 说明 |
 |------|---------|--------|------|
-| `general.BroadcastEvent` | `event_name: str, data: int`（字典指针） | — | 广播自定义事件 |
-| `general.BroadcastToAllClient` | `event_name: str, data: int`（字典指针） | — | 向所有客户端广播 |
-| `general.GetEngineNamespace` | 无 | `str` | 获取引擎命名空间字符串 |
-| `general.GetEngineSystemName` | 无 | `str` | 获取引擎系统名称 |
-| `general.NotifyToClient` | `player_id: str, event_name: str, data: int`（字典指针） | — | 通知单个客户端 |
-| `general.NotifyToMultiClients` | `player_ids: int`（切片指针）, `event_name: str, data: int` | — | 通知多个客户端 |
+| `general.BroadcastEvent` | `event_name: str, data: int`（字典指针） | `bool` | 在本地服务端广播自定义事件，总是返回 `True` |
+| `general.BroadcastToAllClient` | `event_name: str, data: int`（字典指针） | `bool` | 向所有客户端广播事件，总是返回 `True` |
+| `general.GetEngineNamespace` | 无 | `int`（指针） | 获取引擎命名空间字符串（指针） |
+| `general.GetEngineSystemName` | 无 | `int`（指针） | 获取引擎系统名称字符串（指针） |
+| `general.NotifyToClient` | `player_id: str, event_name: str, data: int`（字典指针） | `bool` | 通知单个客户端事件，总是返回 `True` |
+| `general.NotifyToMultiClients` | `player_ids: int`（切片指针）, `event_name: str, data: int`（字典指针） | `bool` | 通知多个客户端事件，总是返回 `True` |
 
 #### 本地设备
 
 | 函数 | 参数类型 | 返回值 | 说明 |
 |------|---------|--------|------|
-| `general.GetMinecraftVersion` | 无 | `str` | 获取当前 Minecraft 版本号 |
-| `general.GetPlatform` | 无 | `int` | 获取当前平台标识（返回值含义见网易文档） |
+| `general.GetMinecraftVersion` | 无 | `int`（指针） | 获取当前 Minecraft 版本号字符串（指针） |
+| `general.GetPlatform` | 无 | `int`（指针） | 获取当前平台标识整数（指针，返回值含义见网易文档） |
 
 #### 工具
 
 | 函数 | 参数类型 | 返回值 | 说明 |
 |------|---------|--------|------|
-| `general.GetHostPlayerId` | 无 | `str` | 获取当前世界房主的玩家 ID |
-| `general.GetServerTickTime` | 无 | `int` | 获取服务器当前 Tick 时间 |
+| `general.GetHostPlayerId` | 无 | `int`（指针） | 获取当前世界房主的玩家 ID 字符串（指针） |
+| `general.GetServerTickTime` | 无 | `int`（指针） | 获取服务器当前 Tick 时间（指针） |
+
+> **注意**：`GetEngineNamespace`、`GetEngineSystemName`、`GetMinecraftVersion`、`GetPlatform`、`GetHostPlayerId`、`GetServerTickTime` 的返回值均为**指针**而非直接值。若需使用实际字符串，请通过 `object.deref(ptr)` 解引用。
 
 ### 5.20 世界 (`world.*`)
 
 依赖 `ServerSystem` 实例的动态函数，通过 `GetEngineCompFactory()` 调用网易模组 API。**公共异常**：`ServerSystem` 不可用或 API 组件创建失败时抛出 Python 层异常；参数类型不匹配时抛出对应异常。
+
+> **关于以下函数表**：`world.*`、`entity.*`、`player.*`、`block.*`、`item.*` 模块中的函数是网易 Mod SDK 接口的封装。以下表格列出函数名和功能简述。由于这些函数直接透传网易 API 的参数和返回值，详细的参数类型和返回值请参考[网易 Mod SDK 官方文档](https://mc.163.com/dev/apidocs.html)。通用规则：
+> - 基础类型参数（`int`/`bool`/`float`/`str`）直接传入
+> - 复合对象（如位置坐标、字典、列表）需通过 `object.ref` 创建指针后传入
+> - 返回复合对象时，返回值是指向该对象的指针
 
 #### 地图
 
@@ -2888,6 +3008,45 @@ on_tick:
 
 > **运行时异常捕获**：`utils.async_run_func` 和 `utils.async_run_cmd` 的回调函数执行时，若内部抛出异常，异常会被 `GameTickTimer._consume` 中的 `try/except Exception: pass` **静默捕获并丢弃**。这意味着延迟执行的函数或命令中的运行时错误**不会**导致程序终止或产生可见的错误信息。
 
+### 5.26 编译缓存 (`compile.*`)
+
+由 `CompileCache` 提供的编译器级函数，用于管理代码编译缓存。
+
+#### `compile.get_max_cache_size() → int`
+
+**执行过程**：返回编译缓存的最大容量（已编译代码的运行器实例数上限）。默认值为 `2048`。
+
+**异常**：不抛出异常。
+
+#### `compile.get_current_cache_size() → int`
+
+**执行过程**：返回编译缓存中当前已缓存的代码运行器实例数。
+
+**异常**：不抛出异常。
+
+#### `compile.set_max_cache_size(size: int) → bool`
+
+**执行过程**：
+1. 校验 `size` 是否为非布尔值的 `int` 且为非负数：若不是，抛出相应错误
+2. 更新缓存最大容量并持久化到模组存储中
+3. 若新容量小于当前已缓存数量，触发垃圾回收（按时间顺序移除早期缓存）
+4. 返回 `True`
+
+**异常**：
+- `The given size must be int` — `size` 不是整数（含 `bool`）
+- `The given size must be non-negative integer` — `size` 为负数
+
+#### `compile.register_cache(code: str) → bool`
+
+**执行过程**：
+1. 编译给定的 `code`（如有必要——若命中缓存则跳过编译）
+2. 将编译结果注册到缓存中
+3. 返回 `True`
+
+**异常**：`code` 编译失败时抛出对应语法/编译错误。
+
+**用途**：通常用于模组加载阶段预编译所有表单代码、自定义函数代码和事件监听器代码，以避免首次运行时因编译造成卡顿。
+
 ---
 
 ## 6. 附录
@@ -2901,12 +3060,13 @@ on_tick:
 | 1 (最高) | `()` | — | 圆括号分组 |
 | 2 | `int()` `bool()` `float()` `str()` | — | 强制类型转换 |
 | 3 | `{ref,...}` `{selector,...}` `{score,...}` `{command,...}` `{func,...}` | — | 花括号语句 |
-| 4 | `not` | 右结合 | 逻辑取反 |
-| 5 | `*` `/` | 左结合 | 乘法、除法 |
-| 6 | `+` `-` | 左结合 | 加法、减法 |
-| 7 | `<` `>` `<=` `>=` `==` `!=` `in` | 不可连用 | 比较与成员检查 |
-| 8 | `and` | 左结合 | 逻辑与（短路） |
-| 9 (最低) | `or` | 左结合 | 逻辑或（短路） |
+| 4 | `*` `/` | 左结合 | 乘法、除法 |
+| 5 | `+` `-` | 左结合 | 加法、减法 |
+| 6 | `<` `>` `<=` `>=` `==` `!=` | 不可连用 | 比较 |
+| 7 | `in` | 不可连用 | 成员检查 |
+| 8 | `not` | 右结合 | 逻辑取反 |
+| 9 | `and` | 左结合 | 逻辑与（短路） |
+| 10 (最低) | `or` | 左结合 | 逻辑或（短路） |
 
 ### 6.2 字节码指令速查表
 
@@ -2935,6 +3095,7 @@ on_tick:
 
 ---
 
-> **文档版本**: 1.0
+> **文档版本**: 1.1
 > **生成日期**: 2026-08-09
+> **最后修订**: 2026-08-12
 > **基于代码版本**: 0.0.3 (commit `efa3add`)
