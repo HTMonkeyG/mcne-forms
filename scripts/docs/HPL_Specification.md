@@ -324,13 +324,42 @@ c=2
 | 8 | `TOKEN_ID_MINUS` | `-` |
 | 9 | `TOKEN_ID_ASTERISK` | `*` |
 | 10 | `TOKEN_ID_SLASH` | `/` |
-| 11 | `TOKEN_ID_SINGLE_QUOTE` | `'...'`（字符串） |
+| 11 | `TOKEN_ID_SINGLE_QUOTE` | `'...'`（字符串，payload 为转义后的字符串内容） |
 | 12 | `TOKEN_ID_LEFT_BRACKET` | `(` |
 | 13 | `TOKEN_ID_RIGHT_BRACKET` | `)` |
 | 14 | `TOKEN_ID_COMMA` | `,` |
 | 15 | `TOKEN_ID_EXCLAMATION` | `!` |
 | 16 | `TOKEN_ID_SEPSEPARATE` | `\n` 或 `\|` |
-| 17–40 | 关键字 Token | 见 [2.5 关键字](#25-关键字) |
+| 17 | `TOKEN_ID_KEY_WORD_INT` | `int` |
+| 18 | `TOKEN_ID_KEY_WORD_BOOL` | `bool` |
+| 19 | `TOKEN_ID_KEY_WORD_STR` | `str` |
+| 20 | `TOKEN_ID_KEY_WORD_FLOAT` | `float` |
+| 21 | `TOKEN_ID_KEY_WORD_REF` | `ref` |
+| 22 | `TOKEN_ID_KEY_WORD_SELECTOR` | `selector` |
+| 23 | `TOKEN_ID_KEY_WORD_SCORE` | `score` |
+| 24 | `TOKEN_ID_KEY_WORD_COMMAND` | `command` |
+| 25 | `TOKEN_ID_KEY_WORD_FUNC` | `func` |
+| 26 | `TOKEN_ID_KEY_WORD_RETURN` | `return` |
+| 27 | `TOKEN_ID_KEY_WORD_IF` | `if` |
+| 28 | `TOKEN_ID_KEY_WORD_ELSE` | `else` |
+| 29 | `TOKEN_ID_KEY_WORD_ELIF` | `elif` |
+| 30 | `TOKEN_ID_KEY_WORD_FI` | `fi` |
+| 31 | `TOKEN_ID_KEY_WORD_FOR` | `for` |
+| 32 | `TOKEN_ID_KEY_WORD_CONTINUE` | `continue` |
+| 33 | `TOKEN_ID_KEY_WORD_BREAK` | `break` |
+| 34 | `TOKEN_ID_KEY_WORD_ROF` | `rof` |
+| 35 | `TOKEN_ID_KEY_WORD_AND` | `and` |
+| 36 | `TOKEN_ID_KEY_WORD_OR` | `or` |
+| 37 | `TOKEN_ID_KEY_WORD_NOT` | `not` |
+| 38 | `TOKEN_ID_KEY_WORD_IN` | `in` |
+| 39 | `TOKEN_ID_KEY_WORD_TRUE` | `True` |
+| 40 | `TOKEN_ID_KEY_WORD_FALSE` | `False` |
+
+> **编译器实现要点——两阶段词素分类**：词法分析器**不区分**标识符和数字字面量——两者均产生 `TOKEN_ID_WORD`（payload 为原始字符串）。数字的识别（`int` vs `float` vs 标识符）**延迟到语法分析阶段**：`ExpressionCombine.parse_to_elements` 遇到 `TOKEN_ID_WORD` 时，依次尝试 `try_parse_float`（检查 payload 是否含 `.`）、`try_parse_int`（尝试 Python `int()`）、`try_parse_var`（验证标识符合法性）。这意味着 `123abc` 会被 `try_parse_int` 拒绝后进入 `try_parse_var`，因以数字开头而报错。
+
+> **编译器实现要点——多字符运算符的形成**：词法分析器**每次只产生单个字符的运算符 Token**。`<=`、`>=`、`==`、`!=` 这些多字符运算符是在语法分析阶段由 `try_parse_compare` 和 `try_parse_equal`/`try_parse_not_equal` 将两个连续的 Token 组合识别的。例如 `!=` → `[TOKEN_ID_EXCLAMATION, TOKEN_ID_ASSIGN]` → 识别为 `ELEMENT_ID_NOT_EQUAL`；若 `!` 后跟的不是 `=`，则抛出语法错误。
+
+> **编译器实现要点——点号 `.` 的处理**：`.` 不在 `CHAR_TO_TOKEN_ID` 中，且不是空白字符，因此会被词法分析器当作普通字符读入 `TOKEN_ID_WORD` 的 payload 中。这使得 `math.sqrt` 被正确识别为单个 token。但这也意味着 `3.14` 被整体识别为单个 `TOKEN_ID_WORD("3.14")`，然后在语法分析阶段由 `try_parse_float` 识别为浮点数字面量——而非 `3` `.` `14` 三个 token。
 
 ---
 
@@ -340,21 +369,87 @@ c=2
 
 一个程序由零条或多条**语句**组成。每条语句独占一行（或用 `|` 分隔）。
 
+#### 完整形式语法（EBNF）
+
 ```
 程序 ::= { 语句 }
-```
 
-语句的类型：
-
-```
 语句 ::= 赋值语句
        | 条件语句
        | 循环语句
        | 返回语句
-       | continue 语句
-       | break 语句
+       | "continue"
+       | "break"
        | 表达式语句
+
+(* ---------- 赋值 ---------- *)
+赋值语句 ::= 标识符 "=" 表达式 "\n"
+
+(* ---------- 控制流 ---------- *)
+条件语句 ::= "if" 表达式 ":" "\n"
+                { 语句 }
+            { "elif" 表达式 ":" "\n"
+                { 语句 } }
+            [ "else" ":" "\n"
+                { 语句 } ]
+            "fi" "\n"
+
+循环语句 ::= "for" 标识符 "," 表达式 ":" "\n"
+                { 语句 }
+            "rof" "\n"
+
+返回语句 ::= "return" 表达式 "\n"
+
+(* ---------- 表达式 ---------- *)
+表达式语句 ::= 表达式 "\n"
+
+(* ---------- 表达式（优先级从低到高） ---------- *)
+表达式       ::= 逻辑或表达式
+逻辑或表达式 ::= 逻辑与表达式 { "or" 逻辑与表达式 }
+逻辑与表达式 ::= 逻辑非表达式 { "and" 逻辑非表达式 }
+逻辑非表达式 ::= ["not"] 成员表达式
+成员表达式   ::= 比较表达式 { "in" 比较表达式 }
+比较表达式   ::= 算术表达式 [ 比较运算符 算术表达式 ]
+算术表达式   ::= 乘除表达式 { 加减运算符 乘除表达式 }
+乘除表达式   ::= 一元表达式 { 乘除运算符 一元表达式 }
+一元表达式   ::= [ "+" | "-" ] 原子表达式     (* 一元正负号，编译时转换为 0 +/- expr *)
+原子表达式   ::= 整数字面量
+              | 浮点数字面量
+              | 字符串字面量
+              | "True" | "False"
+              | 标识符
+              | "(" 表达式 ")"
+              | 强制类型转换
+              | 花括号语句
+
+(* ---------- 类型转换 ---------- *)
+强制类型转换 ::= ("int" | "bool" | "float" | "str") "(" 表达式 ")"
+
+(* ---------- 花括号语句 ---------- *)
+花括号语句 ::= "{" ( ref语句 | selector语句 | score语句 | command语句 | func语句 ) "}"
+
+ref语句      ::= "ref" "," 类型关键字 "," 表达式
+selector语句 ::= "selector" "," 表达式
+score语句    ::= "score" "," 表达式 "," 表达式
+command语句  ::= "command" "," 表达式
+func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { "," 表达式 } ] ")"
+
+(* ---------- 词法级符号 ---------- *)
+比较运算符   ::= "==" | "!=" | "<" | ">" | "<=" | ">="
+加减运算符   ::= "+" | "-"
+乘除运算符   ::= "*" | "/"
+类型关键字   ::= "int" | "bool" | "float" | "str"
+标识符       ::= ( 字母 | "_" ) { 字母 | 数字 | "_" }    (* 不含 "." 和引号，非关键字 *)
+整数字面量   ::= 数字序列（不含 "."，解析为 Python int）
+浮点数字面量 ::= 数字序列 "." 数字序列（解析为 Python float）
+字符串字面量 ::= "'" { 任意字符 | 转义序列 } "'"
 ```
+
+> **语法歧义说明——`=` 的双重角色**：在表达式内部，`=` Token 与紧随的另一个 `=` 组合成 `==`（相等比较）运算符。单独的 `=` 在表达式内部**无效**（非运算符）。因此 `a = b = c` 被解析为 `a = (b == c)`（赋值语句，右侧为相等比较），而非链式赋值。若意图为"将 `b` 的值赋给 `a`"，应写 `a = b`。这是实现中 `try_parse_equal` 要求两个连续 `=` Token 的直接后果。
+
+> **语法歧义说明——比较不可连用**：`1 < 10 < 100` 会被解析为 `(1 < 10) < 100`，即 `True < 100`（布尔值与整数比较），而非数学意义上的"10 在 1 和 100 之间"。这是因为每个二元比较运算符只接受两个操作数（`compact_operator` 将连续的比较运算符各自紧缩为独立的二元节点），且比较结果（布尔值）会成为下一个比较的左操作数。应写为 `1 < 10 and 10 < 100`。
+
+> **语法歧义说明——`not` 的结合性**：`not` 是一元右结合运算符，`compact_inverse` 将 `not` 与其后紧跟的**一个**表达式元素结合。因此 `not a and b` → `Inverse(a) and b` → `(not a) and b`，而非 `not (a and b)`。
 
 ### 3.2 表达式
 
@@ -1202,15 +1297,17 @@ fi
 
 解析完成后，程序被编译为以下七种操作码（Opcode）构成的 AST：
 
-| Opcode | 含义 | Payload |
-|--------|------|---------|
-| `OpcodeAssign` | 赋值 | `(变量名, ExpressionCombine)` |
-| `OpcodeCondition` | 条件语句 | `list[ConditionCodeBlock]` |
-| `OpcodeForLoop` | 循环语句 | `ForLoopCodeBlock` |
-| `OpcodeContinue` | 跳过本轮循环 | 无 |
-| `OpcodeBreak` | 终止循环 | 无 |
-| `OpcodeExpression` | 表达式语句 | `ExpressionCombine` |
-| `OpcodeReturn` | 返回语句 | `ExpressionCombine` |
+| Opcode | 值 | 含义 | Payload | origin_line |
+|--------|---|------|---------|-------------|
+| `OpcodeAssign` | 0 | 赋值 | `tuple[str, ExpressionCombine]` — `(变量名, 表达式)` | 源代码行 |
+| `OpcodeCondition` | 1 | 条件语句 | `list[ConditionCodeBlock]` | `"fi"` |
+| `OpcodeForLoop` | 2 | 循环语句 | `ForLoopCodeBlock` | `"for"` |
+| `OpcodeContinue` | 3 | 跳过本轮循环 | `None` | 源代码行 |
+| `OpcodeBreak` | 4 | 终止循环 | `None` | 源代码行 |
+| `OpcodeExpression` | 5 | 表达式语句 | `ExpressionCombine` | 源代码行 |
+| `OpcodeReturn` | 6 | 返回语句 | `ExpressionCombine` | 源代码行 |
+
+所有 Opcode 类继承自 `OpcodeBase`（字段：`opcode_id: int`、`opcode_payload: Any`、`origin_line: str`）。
 
 `ConditionCodeBlock` 结构：
 - `condition: ExpressionCombine | None` — `None` 表示 `else` 分支
@@ -1222,6 +1319,67 @@ fi
 - `repeat_times: ExpressionCombine` — 循环次数表达式
 - `state_line: str` — 循环声明行（用于错误信息）
 - `code_block: list[OpcodeBase]` — 循环体
+
+#### 3.4.1 ExpressionElement 类型体系
+
+表达式被解析为由 `ExpressionElement` 子类构成的树。以下是完整的 25 种元素类型：
+
+**字面量与变量**（`ExpressionLiteral`，字段 `element_id: int, element_payload: Any`）：
+
+| Element ID | 常量 | element_payload 类型 | 说明 |
+|-----------|------|---------------------|------|
+| 0 | `ELEMENT_ID_VAR` | `str` | 变量名（如 `x`） |
+| 12 | `ELEMENT_ID_INT` | `int` 或 `ExpressionCombine` | 整数字面量；若为 `ExpressionCombine` 则表示 `int(expr)` 强制转换 |
+| 13 | `ELEMENT_ID_BOOL` | `bool` 或 `ExpressionCombine` | 布尔字面量或 `bool(expr)` 强制转换 |
+| 14 | `ELEMENT_ID_FLOAT` | `float` 或 `ExpressionCombine` | 浮点数字面量或 `float(expr)` 强制转换 |
+| 15 | `ELEMENT_ID_STR` | `str` 或 `ExpressionCombine` | 字符串字面量或 `str(expr)` 强制转换 |
+
+**花括号语句**（各自独立类，均继承 `ExpressionElement`）：
+
+| Element ID | 类名 | element_payload | 说明 |
+|-----------|------|-----------------|------|
+| 16 | `ExpressionReference` | `list[TYPE_ENUM, ExpressionCombine]` | `{ref, type, index}` |
+| 17 | `ExpressionSelector` | `ExpressionCombine` | `{selector, target}` |
+| 18 | `ExpressionScore` | `list[ExpressionCombine, ExpressionCombine]` | `{score, target, board}` |
+| 19 | `ExpressionCommand` | `ExpressionCombine` | `{command, line}` |
+| 20 | `ExpressionFunction` | `list[str, list[ExpressionCombine]]` | `{func, name(args...)}` — `[函数名, [参数表达式列表]]` |
+
+**二元/多元运算符**（`ExpressionOperator` 子类，字段 `element_payload: list[ExpressionElement]`，储存操作数列表）：
+
+| Element ID | 类名 | 结合性 | 说明 |
+|-----------|------|--------|------|
+| 7 | `ExpressionAdd` | 左 | `+`（n 元：`a + b + c` → `Add(a, b, c)`） |
+| 8 | `ExpressionRemove` | 左 | `-`（n 元：`a - b - c` → `Remove(a, b, c)`） |
+| 9 | `ExpressionTimes` | 左 | `*`（n 元） |
+| 10 | `ExpressionDivide` | 左 | `/`（n 元） |
+| 2 | `ExpressionEqual` | 不可连用 | `==`（二元） |
+| 11 | `ExpressionNotEqual` | 不可连用 | `!=`（二元） |
+| 3 | `ExpressionLessThan` | 不可连用 | `<`（二元） |
+| 4 | `ExpressionGreaterThan` | 不可连用 | `>`（二元） |
+| 5 | `ExpressionLessEqual` | 不可连用 | `<=`（二元） |
+| 6 | `ExpressionGreaterEqual` | 不可连用 | `>=`（二元） |
+| 21 | `ExpressionAnd` | 左（短路） | `and`（n 元） |
+| 22 | `ExpressionOr` | 左（短路） | `or`（n 元） |
+| 23 | `ExpressionIn` | 不可连用 | `in`（二元） |
+| 24 | `ExpressionInverse` | 右（一元） | `not`（一元，`element_payload` 只有 1 个元素） |
+
+**其他**：
+
+| Element ID | 类名 | 说明 |
+|-----------|------|------|
+| 1 | `ExpressionCombine` | 复杂表达式容器——解析完成后 `element_payload` 恰好包含 1 个上述元素 |
+
+**辅助类**：`ExpressionNormal(element_id: int)` — 仅用于解析中间阶段，标记运算符位置，最终 AST 中不出现。
+
+#### 3.4.2 编译器内部状态：ForLoopEnv
+
+循环编译期间传递的上下文：
+
+```
+ForLoopEnv:
+  continue_pc: int       # continue 应跳转到哪个 pc
+  end_indexes: list[int] # 所有 break 占位跳转的 pc 偏移列表（编译完成后回填）
+```
 
 ### 3.5 类型系统与类型转换
 
@@ -1525,21 +1683,48 @@ AST (list[OpcodeBase])
 
 由 `CodeParser` 类实现，基于 `SentenceReader`（Token 流）。
 
-**入口**：`CodeParser.parse()` 循环调用 `_parse_code()` 直到 Token 流耗尽。
+#### 4.3.1 入口算法
 
-**`_parse_code()` 解析策略**：
+`CodeParser` 初始化时自动在源代码末尾追加 `\n`，确保源码总是以换行符结尾。
 
-1. 记录当前流位置，尝试解析为**表达式语句**（`ExpressionCombine.parse`）
-2. 若失败，回退流指针到记录位置，读取第一个 Token 判断：
-   - `TOKEN_ID_WORD` → `_parse_assign()`（赋值语句）
-   - `TOKEN_ID_KEY_WORD_IF` → `_parse_condition()`（条件语句）
-   - `TOKEN_ID_KEY_WORD_FOR` → `_parse_for_loop()`（循环语句）
-   - `TOKEN_ID_KEY_WORD_RETURN` → `_parse_return()`（返回语句）
-   - `TOKEN_ID_KEY_WORD_CONTINUE` → `OpcodeContinue`
-   - `TOKEN_ID_KEY_WORD_BREAK` → `OpcodeBreak`
-3. 若仍不匹配，返回 Token 信息供上层处理（`elif`/`else`/`fi`/`rof` 等）
+**`CodeParser.parse()` 主循环**：
 
-**表达式解析**（`ExpressionCombine.parse`）：
+```
+1. 初始化 code_block = []
+2. 循环调用 _parse_code():
+   a. 若返回 (Opcode, None) → 有效语句，追加到 code_block，调用
+      _validate_next_line 确认语句后有行分隔符，继续循环
+   b. 若返回 (None, None) → Token 流耗尽，退出循环
+   c. 若返回 (None, (Token, ...)):
+      - 若 Token 是 TOKEN_ID_SEPSEPARATE → 空行/空白行，跳过 (continue)
+      - 否则 → 语法错误
+3. 返回 code_block
+```
+
+> **关键实现细节——空行处理**：`_parse_code` 首先尝试将当前行解析为表达式语句。当遇到空行（仅含 `\n` 或 `|`）时，表达式解析立即因遇到 `TOKEN_ID_SEPSEPARATE` 而终止，产生空 payload。`parse()` 的 compact 检查失败（`len(element_payload) != 1`），抛出异常。`_parse_code` 捕获后回退指针，读取第一个 Token 发现是 `TOKEN_ID_SEPSEPARATE`。主循环的 `parse()` 方法识别此情况后直接跳过（`continue`），实现了空行的忽略。条件语句体和循环语句体中的空行同理（`_parse_condition` 和 `_parse_for_loop` 各自处理）。
+
+**`_parse_code()` 内部流程**：
+
+```
+1. 记录当前指针位置
+2. 尝试 ExpressionCombine.parse(CONTEXT_PARSE_ASSIGN):
+   成功 → 返回 OpcodeExpression(expr, 源代码行)
+   失败 → 捕获异常，回退指针到记录位置
+3. 读取第一个 Token:
+   - TOKEN_ID_WORD             → _parse_assign()    (赋值，下文详解)
+   - TOKEN_ID_KEY_WORD_IF      → _parse_condition() (条件)
+   - TOKEN_ID_KEY_WORD_FOR     → _parse_for_loop()  (循环)
+   - TOKEN_ID_KEY_WORD_RETURN  → _parse_return()    (返回)
+   - TOKEN_ID_KEY_WORD_CONTINUE → OpcodeContinue    (跳过)
+   - TOKEN_ID_KEY_WORD_BREAK   → OpcodeBreak        (终止)
+   - None (流耗尽)             → 返回 (None, None)
+   - 其他                      → 返回 (None, (Token, start, end, err))
+      供上层处理 (elif/else/fi/rof/SEPSEPARATE)
+```
+
+> **关键实现细节——赋值与等号的消歧**：`_parse_code` **先尝试表达式解析**。对于 `a = 1`：表达式解析读到 `a`（变量）→ 读到 `=` → 调用 `try_parse_equal` → 要求下一个 Token 也是 `=` → 但下一个 Token 是 `1` → 失败。`_parse_code` 捕获异常后回退，走 "第一个 Token 是 WORD → `_parse_assign`" 路径。`_parse_assign` 验证变量名、确认后跟 `=`、然后以 `CONTEXT_PARSE_ASSIGN` 解析右侧表达式。对于 `a == 1`：表达式解析读到 `a` → 读到 `=` → `try_parse_equal` 读下一个 Token 发现是 `=` → 成功识别 `==` → 表达式解析成功 → 返回 `OpcodeExpression`。
+
+#### 4.3.2 表达式解析流程 (`ExpressionCombine.parse`)
 
 1. `parse_to_elements`：遍历 Token 流，将 Token 转换为平铺的 `ExpressionElement` 列表
 2. 按优先级从高到低依次调用 `compact_operator`：
@@ -1558,30 +1743,56 @@ AST (list[OpcodeBase])
   → [Times(6, Divide(8, 2, 4), 2, 3)]
 ```
 
+#### 4.3.3 检查点系统
+
+`CheckPoint` 用于运行时错误定位，在编译阶段同步生成。每个 `CheckPoint` 关联一段字节码范围到其对应的源代码行：
+
+```
+CheckPoint:
+  point_type: int   # CHECK_POINT_TYPE_NORMAL (0) | CONDITION (1) | FOR_LOOP (2)
+  start_pc: int     # 该行代码对应字节码的起始 pc
+  end_pc: int       # 该行代码对应字节码的结束 pc
+  payload: list[str] # 源代码行信息
+```
+
+**生成规则**：
+
+| 语句类型 | point_type | payload 内容 |
+|---------|-----------|-------------|
+| 顶层语句（赋值/表达式/return/continue/break） | `NORMAL` (0) | `[源代码行]` |
+| 条件语句的 `if`/`elif` 条件部分 | `CONDITION` (1) | `[条件声明行]` |
+| 条件语句体内语句 | `CONDITION` (1) | `[条件声明行, 体内源代码行]` |
+| 循环语句的 `for` 头部 | `FOR_LOOP` (2) | `[循环声明行]` |
+| 循环语句体内语句 | `FOR_LOOP` (2) | `[循环声明行, 体内源代码行]` |
+
+**错误定位**：`_chk_by_pc(pc)` 在 `check_point` 列表中二分查找 `start_pc <= pc <= end_pc` 的检查点。`check_point` 列表按 `start_pc` 升序排列。
+
 ### 4.4 字节码指令集
 
-共 18 条指令，每条指令可附带 0–2 个操作数：
+共 18 条指令。字节码是线性序列，每条指令占 1–3 个槽位（操作码自身占 1 个槽位）：
 
-| 操作码 | 值 | 助记符 | 操作数 | 栈变化 | 说明 |
+| 操作码 | 值 | 槽位数 | 操作数 | 栈变化 | 说明 |
 |--------|---|--------|--------|--------|------|
-| `LOAD_CONST` | 0 | — | `CONST` | `→ val` | 将常量压入栈顶 |
-| `LOAD_VALUE` | 1 | — | `VAR_INDEX` | `→ variables[I]` | 将变量值压栈 |
-| `STORE_VALUE` | 2 | — | `VAR_INDEX` | `val →` | 弹出栈顶存入变量 |
-| `LOOP_JUMP` | 3 | — | `VAR_INDEX, JUMP_TO` | — | 比较栈顶两值控制循环 |
-| `LOOP_CHECK` | 4 | — | `CHECK_TYPE` | `val →` 或 `v1,v2 →` | 循环校验 |
-| `DIRECT_JUMP` | 5 | — | `JUMP_TO` | — | 无条件跳转 |
-| `FALSE_JUMP` | 6 | — | `JUMP_TO` | `val →` | 栈顶为假时跳转 |
-| `TRUE_JUMP` | 7 | — | `JUMP_TO` | `val →` | 栈顶为真时跳转 |
-| `HANDLE_COMPUTE` | 8 | — | `POP_LEN, SUB_TYPE` | `v1...vN → result` | N 元算术运算 |
-| `HANDLE_COMPARE` | 9 | — | `SUB_TYPE` | `a, b → bool` | 二元比较 |
-| `HANDLE_LOGIC_ANDOR` | 10 | — | `SUB_TYPE` | `a, b → bool`（复制） | 逻辑与/或 |
-| `HANDLE_LOGIC_INNOT` | 11 | — | `SUB_TYPE` | `a → bool` 或 `a,b → bool` | 逻辑取反/成员 |
-| `HANDLE_CAST` | 12 | — | `SUB_TYPE` | `val → cast(val)` | 强制类型转换 |
-| `HANDLE_FUNC` | 13 | — | `POP_LEN, FUNC_NAME` | `args... → result` | 调用内建函数 |
-| `HANDLE_INTERACT` | 14 | — | `SUB_TYPE[, REF_TYPE]` | `args... → result` | 游戏交互 |
-| `STORE_RETURN_VAL` | 15 | — | 无 | `val →` | 保存返回值 |
-| `PROGRAM_STOP_RUN` | 16 | — | 无 | — | 终止虚拟机 |
-| `INTERNAL_PANIC` | 17 | — | `ERROR` | — | 抛出内部错误 |
+| `LOAD_CONST` | 0 | 2 | `[+1] CONST: any` | `→ val` | 将常量 `C` 压入栈顶。`CONST` 可以是 `int`/`bool`/`float`/`str` |
+| `LOAD_VALUE` | 1 | 2 | `[+1] VAR_INDEX: int` | `→ variables[I]` | 将 `variables[I]` 压栈；若为 `None` 则抛出 `Variable used before assignment` |
+| `STORE_VALUE` | 2 | 2 | `[+1] VAR_INDEX: int` | `val →` | 弹出栈顶，写入 `variables[I]` |
+| `LOOP_JUMP` | 3 | 3 | `[+1] VAR_INDEX: int` `[+2] JUMP_TO: int` | — | 循环控制（详见下方） |
+| `LOOP_CHECK` | 4 | 2 | `[+1] CHECK_TYPE: int` | `val →` 或 `v1,v2 →` | 循环校验/栈清理 |
+| `DIRECT_JUMP` | 5 | 2 | `[+1] JUMP_TO: int` | — | 无条件跳转 `pc = JUMP_TO` |
+| `FALSE_JUMP` | 6 | 2 | `[+1] JUMP_TO: int` | `val →` | 弹出栈顶，若为假则 `pc = JUMP_TO`，否则 `pc += 2` |
+| `TRUE_JUMP` | 7 | 2 | `[+1] JUMP_TO: int` | `val →` | 弹出栈顶，若为真则 `pc = JUMP_TO`，否则 `pc += 2` |
+| `HANDLE_COMPUTE` | 8 | 3 | `[+1] POP_LEN: int` `[+2] SUB_TYPE: int` | `v1...vN → result` | N 元算术运算（详见下方） |
+| `HANDLE_COMPARE` | 9 | 2 | `[+1] SUB_TYPE: int` | `a, b → bool` | 二元比较（弹出 `b`，再弹出 `a`，计算 `a OP b`） |
+| `HANDLE_LOGIC_ANDOR` | 10 | 2 | `[+1] SUB_TYPE: int` | `a, b → bool, bool` | 逻辑与/或（弹出 `b`、`a`，计算 `a OP b`，**结果压入两次**） |
+| `HANDLE_LOGIC_INNOT` | 11 | 2 | `[+1] SUB_TYPE: int` | `a → bool` 或 `a,b → bool` | `not`：弹出 1 个；`in`：弹出 2 个（先 `b` 后 `a`，检查 `a in b`） |
+| `HANDLE_CAST` | 12 | 2 | `[+1] SUB_TYPE: int` | `val → cast(val)` | 弹出栈顶，强制类型转换后压回 |
+| `HANDLE_FUNC` | 13 | 3 | `[+1] POP_LEN: int` `[+2] FUNC_NAME: str` | `args... → result` | 调用内建函数。`FUNC_NAME` 是字符串（如 `"math.sqrt"`）。`POP_LEN` 为参数个数（0 表示无参） |
+| `HANDLE_INTERACT` | 14 | 2 或 3 | `[+1] SUB_TYPE: int` `[+2] REF_TYPE: int`（仅 `SUB_TYPE=3` 时） | `args... → result` | 游戏交互。`SUB_TYPE=0`：command（1 参数）；`SUB_TYPE=1`：score（2 参数）；`SUB_TYPE=2`：selector（1 参数）；`SUB_TYPE=3`：ref（1 参数 + REF_TYPE）。参数按顺序从栈弹出 |
+| `STORE_RETURN_VAL` | 15 | 1 | 无 | `val →` | 弹出栈顶存入 `result` 寄存器，**不压回** |
+| `PROGRAM_STOP_RUN` | 16 | 1 | 无 | — | 终止虚拟机执行循环 |
+| `INTERNAL_PANIC` | 17 | 2 | `[+1] ERROR: str` | — | 抛出包含 `ERROR` 消息的运行时异常 |
+
+**编码示例**：`LOAD_CONST 42` → `[0, 42]`；`LOOP_JUMP 0 15` → `[3, 0, 15]`；`HANDLE_FUNC 1 "math.sqrt"` → `[13, 1, "math.sqrt"]`。
 
 **算术子类型**：
 
@@ -1641,14 +1852,92 @@ AST (list[OpcodeBase])
 
 **检查点生成**：每条语句编译时同步生成 `CheckPoint`，记录 `point_type`、`start_pc`、`end_pc` 和源代码行，用于运行时错误定位。
 
+#### 4.5.1 短路求值编译算法
+
+`and` 和 `or` 的短路编译利用 `HANDLE_LOGIC_ANDOR` 的结果复制行为（结果压入两次）。以下是精确的编译算法：
+
+**`and`（`ExpressionAnd` 编译）**：
+
+```
+输入: [A, B, C] (n 个操作数的 and 链)
+输出字节码序列：
+  1. LOAD_CONST True            # 初始"累积值"
+  2. 对每个操作数 X：
+     a. 编译 X 的表达式（结果压栈）
+     b. HANDLE_LOGIC_ANDOR AND  # 弹出 b=结果X, a=累积值, 计算 a and b,
+                                 压入结果两次 (stack: [..., r, r])
+     c. FALSE_JUMP end          # 弹出栈顶的 r 副本; 若 r 为假则跳转到 end
+  3. (end: 标记位置)
+  
+最终栈顶保留最后一个结果，注意短路跳过后后续操作数的代码仍留在字节码中但不执行
+(因为 FALSE_JUMP 直接跳过了它们)
+```
+
+**示例——`A and B and C` 的字节码结构**：
+
+```
+  LOAD_CONST True          # 初始累积值
+  <A 的编译结果>            # 求值 A → stack: [True, val_A]
+  HANDLE_LOGIC_ANDOR AND   # stack: [r1, r1] 其中 r1 = True and val_A
+  FALSE_JUMP end           # 若 r1 为假，跳转至 end
+  <B 的编译结果>            # 求值 B → stack: [r1, val_B]
+  HANDLE_LOGIC_ANDOR AND   # stack: [r2, r2] 其中 r2 = r1 and val_B
+  FALSE_JUMP end           # 若 r2 为假，跳转至 end
+  <C 的编译结果>            # 求值 C → stack: [r2, val_C]
+  HANDLE_LOGIC_ANDOR AND   # stack: [r3, r3] 其中 r3 = r2 and val_C
+end:                        # 若所有条件为真，栈顶 = r3 (= True)
+```
+
+**`or`（`ExpressionOr` 编译）**：与 `and` 结构相同，但初始累积值为 `False`，使用 `TRUE_JUMP` 替代 `FALSE_JUMP`，`LOGIC_ANDOR_TYPE_OR` 替代 `LOGIC_ANDOR_TYPE_AND`。
+
+#### 4.5.2 一元正负号自动补零算法
+
+`compact_operator` 在处理 `+` 和 `-` 时，会自动为缺少左操作数的位置插入 `0` 字面量。精确算法如下：
+
+```
+compact_operator(ELEMENT_ID_ADD/REMOVE):
+  reader = AnyReader(element_payload)
+  new_payload = []
+  
+  while reader 未耗尽:
+    读取 element
+    若 element 不是目标运算符:
+      new_payload.append(element)
+      继续
+    
+    # element 是 + 或 -
+    # 检查该运算符前是否有左操作数
+    new_payload.pop()  # 移除刚加入的"左操作数"（可能是上一个运算符或元素）
+    
+    若 reader 位置 > 1:  # 非表达式开头
+      回退两步获取 operator 之前的元素 prev
+      若 prev 不是 "类变量" (is_variable 返回 False):
+        # 这是像 `*` 后跟 `-` 的情况，如 `5 * -3`
+        在流中插入 0 字面量
+        将 prev 重新加入 new_payload
+      否则:
+        从流中读取 prev (确认位置)
+    否则:  # 表达式开头位置
+      在流开头插入 0 字面量
+      从流中读取它
+    
+    # 接着读取: 左操作数 var_a, 运算符位置, 右操作数 var_b
+    sub_elements = [var_a]
+    持续读取直到下一个运算符不是同类型，构建 sub_elements 列表
+    将 element_cls(sub_elements) 加入 new_payload
+```
+
+**效果示例**：`-5` → `Remove(ExpressionLiteral(0), ExpressionLiteral(5))`；`5 * -3` → `Times(ExpressionLiteral(5), Remove(ExpressionLiteral(0), ExpressionLiteral(3)))`。
+
 ### 4.6 虚拟机执行
 
 由 `CodeRunner` 类实现。基于栈的虚拟机，核心组件：
 
-- **`pc`**：程序计数器
+- **`pc`**：程序计数器（字节码数组索引）
 - **`stack`**：操作数栈（`list[int | bool | float | str]`）
-- **`variables`**：变量数组（`list[int | bool | float | str | None]`）
-- **`result`**：返回值寄存器
+- **`variables`**：变量数组（`list[int | bool | float | str | None]`，长度 = `vars_len`，元素初始为 `None`）
+- **`result`**：返回值寄存器（初始 `None`）
+- **`byte_code`**：字节码序列（`list[int | bool | float | str]`）
 
 **执行循环**：`while True` 循环逐条执行字节码，遇到 `PROGRAM_STOP_RUN`(16) 或异常时终止。
 
@@ -1666,6 +1955,234 @@ else:
 ```
 
 **错误定位**：发生异常时，通过 `_chk_by_pc(pc)` 在检查点列表中二分查找对应的 `CheckPoint`，获取出错源代码行的信息并格式化输出。
+
+#### 4.6.1 完整指令操作语义
+
+以下以 Python 伪代码给出每条指令的精确运行时行为：
+
+```python
+# 0: LOAD_CONST (slot: op, const)
+push(const)
+pc += 2
+
+# 1: LOAD_VALUE (slot: op, var_index)
+value = variables[var_index]
+if value is None:
+    raise Exception("Variable <name> used before assignment")
+push(value)
+pc += 2
+
+# 2: STORE_VALUE (slot: op, var_index)
+variables[var_index] = pop()
+pc += 2
+
+# 3: LOOP_JUMP (slot: op, var_index, jump_to)
+# 栈布局：[..., repeat_times, counter]
+# stack[-2] = repeat_times, stack[-1] = counter
+if stack[-1] < stack[-2]:
+    variables[var_index] = stack[-1]  # 写回循环变量
+    stack[-1] += 1                     # 递增计数器
+    pc += 3                            # 继续执行循环体
+else:
+    pc = jump_to                       # 跳出循环
+
+# 4: LOOP_CHECK (slot: op, check_type)
+if check_type == 0:  # DATA_TYPE
+    temp = stack[-1]
+    if isinstance(temp, bool) or not isinstance(temp, int):
+        raise Exception("The repeat times of for loop must be int")
+elif check_type == 1:  # POP_STACK
+    pop()  # 弹出计数器
+    pop()  # 弹出循环次数
+pc += 2
+
+# 5: DIRECT_JUMP (slot: op, jump_to)
+pc = jump_to
+
+# 6: FALSE_JUMP (slot: op, jump_to)
+if not pop():
+    pc = jump_to
+else:
+    pc += 2
+
+# 7: TRUE_JUMP (slot: op, jump_to)
+if pop():
+    pc = jump_to
+else:
+    pc += 2
+
+# 8: HANDLE_COMPUTE (slot: op, pop_len, sub_type)
+# 栈上有 pop_len 个操作数：v1, v2, ..., vN （v1 最早入栈，vN 在栈顶）
+if sub_type == 0:  # ADD
+    if pop_len == 2:
+        push(pop() + pop())
+    elif pop_len == 3:
+        t1, t2 = pop(), pop()
+        push(pop() + t2 + t1)
+    elif pop_len > 1:
+        temp = stack[-pop_len]
+        for i in range(pop_len - 1):
+            temp += stack[-pop_len + i + 1]
+        del stack[-pop_len:]
+        push(temp)
+elif sub_type == 1:  # REMOVE
+    if pop_len == 2:
+        push(pop() - pop())     # 注意：先弹出的是右操作数
+    elif pop_len == 3:
+        t1, t2 = pop(), pop()
+        push(pop() - t2 - t1)
+    elif pop_len > 1:
+        temp = stack[-pop_len]
+        for i in range(pop_len - 1):
+            temp -= stack[-pop_len + i + 1]
+        del stack[-pop_len:]
+        push(temp)
+elif sub_type == 2:  # TIMES
+    # 同上模式
+elif sub_type == 3:  # DIVIDE
+    # 同上模式
+pc += 3
+
+# 9: HANDLE_COMPARE (slot: op, sub_type)
+b = pop()
+a = pop()
+if sub_type == 0:   push(a == b)   # EQUAL
+elif sub_type == 1: push(a != b)   # NOT_EQUAL
+elif sub_type == 2: push(a > b)    # LESS_THAN (注意：因栈序，用 > 实现 <)
+elif sub_type == 3: push(a < b)    # GREATER_THAN (用 < 实现 >)
+elif sub_type == 4: push(a >= b)   # LESS_EQUAL
+elif sub_type == 5: push(a <= b)   # GREATER_EQUAL
+pc += 2
+
+# 10: HANDLE_LOGIC_ANDOR (slot: op, sub_type)
+b = pop()
+a = pop()
+if sub_type == 0:  # AND
+    r = a and b
+elif sub_type == 1:  # OR
+    r = a or b
+push(r)
+push(r)  # 结果压入两次：一个用于后续跳转检查，一个用于链上的下一次运算
+pc += 2
+
+# 11: HANDLE_LOGIC_INNOT (slot: op, sub_type)
+if sub_type == 0:  # NOT
+    push(not pop())
+elif sub_type == 1:  # IN
+    b = pop()
+    a = pop()
+    push(a in b)
+pc += 2
+
+# 12: HANDLE_CAST (slot: op, sub_type)
+val = pop()
+if sub_type == 0:   push(int(val))    # INT
+elif sub_type == 1: push(bool(val))   # BOOL
+elif sub_type == 2: push(float(val))  # FLOAT
+elif sub_type == 3: push(str(val))    # STR
+pc += 2
+
+# 13: HANDLE_FUNC (slot: op, pop_len, func_name)
+if pop_len > 0:
+    args = stack[-pop_len:]  # 从栈顶取 pop_len 个参数
+    del stack[-pop_len:]
+    val = builtins.get_func(func_name)(*args)
+else:
+    val = builtins.get_func(func_name)()
+# 返回值类型校验
+if not isinstance(val, (int, bool, float, str)):
+    # Python 2 兼容：尝试 unicode → str
+    raise Exception("The data type of return value from func ... must be int/bool/float/str")
+push(val)
+pc += 3
+
+# 14: HANDLE_INTERACT (slot: op, sub_type[, ref_type])
+if sub_type == 0:  # COMMAND
+    cmd = pop()
+    if not isinstance(cmd, str):
+        raise Exception("...must be str")
+    push(interact.command_func()(cmd))
+    pc += 2
+elif sub_type == 1:  # SCORE
+    scoreboard = pop()
+    target = pop()
+    # 两个参数都必须是 str
+    push(interact.score_func()(target, scoreboard))
+    pc += 2
+elif sub_type == 2:  # SELECTOR
+    selector = pop()
+    if not isinstance(selector, str):
+        raise Exception("...must be str")
+    push(interact.selector_func()(selector))
+    pc += 2
+elif sub_type == 3:  # REF
+    index = pop()
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise Exception("...must be int")
+    value = interact.ref_func()(index)
+    # 类型断言（ref_type 来自 byte_code[pc+2]）
+    if ref_type == 0 and (isinstance(value, bool) or not isinstance(value, int)):
+        raise Exception("Assertion failed: Expect an int...")
+    elif ref_type == 1 and not isinstance(value, bool):
+        raise Exception("Assertion failed: Expect a bool...")
+    elif ref_type == 2 and not isinstance(value, float):
+        raise Exception("Assertion failed: Expect a float...")
+    elif ref_type == 3 and not isinstance(value, str):
+        raise Exception("Assertion failed: Expect a str...")
+    push(value)
+    pc += 3
+
+# 15: STORE_RETURN_VAL (slot: op)
+result = pop()
+# 值不压回栈——仅保存到 result 寄存器
+pc += 1
+
+# 16: PROGRAM_STOP_RUN (slot: op)
+break  # 退出执行循环
+
+# 17: INTERNAL_PANIC (slot: op, error_msg)
+raise Exception(error_msg)
+```
+
+**异常处理流程**：若执行循环中发生异常：
+1. 若异常已是 `InternalException`（由 `_fast_panic` 抛出，包含格式化的错误消息和源代码行），直接向上传播
+2. 否则（Python 原生异常如 `TypeError`、`ValueError`），调用 `_fast_panic(chk_by_pc(pc), str(e))` 包装为 `InternalException` 后抛出
+
+**`require_return` 检查**：执行循环结束后（`PROGRAM_STOP_RUN` 触发 `break`），若 `require_return=True` 且 `result is None`，抛出 `No return value after running the code`。
+
+#### 4.6.2 运行时外部接口
+
+虚拟机通过以下两个抽象接口与外部交互（由宿主环境注入）：
+
+**`GameInteract`**——游戏交互接口：
+
+```
+GameInteract:
+  command_func()  → Callable[[str], int]          # 执行 Minecraft 命令，返回成功次数
+  score_func()    → Callable[[str, str], int]      # 查询记分板 (target, board) → 分数
+  selector_func() → Callable[[str], str]           # 解析目标选择器 → 逗号分隔的实体名
+  ref_func()      → Callable[[int], int|bool|float|str]  # 引用表单响应 (index) → 值
+```
+
+**`BuiltInFunction`**——内建函数注册表：
+
+```
+BuiltInFunction:
+  get_func(name: str) → Callable[..., int|bool|float|str]
+```
+
+`get_func` 接收函数名（如 `"math.sqrt"`、`"strings.split"`、`"int"`），返回对应的 Python 可调用对象。函数名到实现的映射表见[第 5 章](#5-内建库函数)。返回的函数必须接受基础类型参数并返回基础类型值（返回复合对象时通过 `object.ref` 包装为指针）。
+
+**对象管理器** (`BaseManager`)——指针系统实现：
+
+```
+BaseManager:
+  _mapping: dict[int, Any]  # 指针 → Python 对象
+  _pinned: set[int]         # 已固定的指针集合
+  ref(obj) → int            # 分配随机非零 32 位有符号整数指针，存入 _mapping
+  deref(ptr) → Any          # 返回 _mapping[ptr]，无效时抛异常
+  release_internal(frame)   # 清理未固定的对象（代码执行结束时调用）
+```
 
 ---
 
@@ -3095,7 +3612,7 @@ on_tick:
 
 ---
 
-> **文档版本**: 1.1
+> **文档版本**: 1.2
 > **生成日期**: 2026-08-09
 > **最后修订**: 2026-08-12
 > **基于代码版本**: 0.0.3 (commit `efa3add`)
