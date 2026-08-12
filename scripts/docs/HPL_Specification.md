@@ -43,11 +43,10 @@
    - [3.8 错误处理](#38-错误处理)
 4. [编译与虚拟机实现](#4-编译与虚拟机实现)
    - [4.1 编译流水线概览](#41-编译流水线概览)
-   - [4.2 词法分析实现](#42-词法分析实现)
-   - [4.3 语法分析实现](#43-语法分析实现)
-   - [4.4 字节码指令集](#44-字节码指令集)
-   - [4.5 代码生成](#45-代码生成)
-   - [4.6 虚拟机执行](#46-虚拟机执行)
+   - [4.2 词法分析](#42-词法分析)
+   - [4.3 语法分析](#43-语法分析)
+   - [4.4 代码生成](#44-代码生成)
+   - [4.5 虚拟机执行](#45-虚拟机执行)
 5. [内建库函数](#5-内建库函数)
    - [5.1 对象管理 (`object.*`)](#51-对象管理-object)
    - [5.2 反射 (`reflect.*`)](#52-反射-reflect)
@@ -77,7 +76,7 @@
    - [5.26 编译缓存 (`compile.*`)](#526-编译缓存-compile)
 6. [附录](#6-附录)
    - [6.1 运算符优先级总表](#61-运算符优先级总表)
-   - [6.2 完整字节码指令集](#62-完整字节码指令集)
+   - [6.2 字节码指令速查表](#62-字节码指令速查表)
 
 ---
 
@@ -99,17 +98,17 @@ NEMC Form Script 是一门嵌入在网易 Minecraft 基岩版（NEMC）中的动
 
 | 表单类型 | 底层响应数据 | `{ref, type, -1}` 行为 | `{ref, type, n}` (n ≥ 0) 行为 |
 |---------|-------------|------------------------|-------------------------------|
-| **模态表单** (Modal) | `list`（各控件响应值） | ❌ 不允许（`index < 0` 报错） | 返回 `response[n]`（第 `n` 个控件的值） |
-| **长表单** (Long) | `int`（被点击按钮的索引） | 返回按钮索引值 | 返回 `n == response`（判断第 `n` 个按钮是否被点击） |
-| **信息表单** (Popup) | `bool`（`True`=确认, `False`=取消） | 返回 `True`/`False` | 返回 `n == int(response)` |
-| **表单关闭** (Cancel) | `int`（关闭原因码：0/1/2） | 返回关闭原因码 | 返回 `n == response` |
+| 模态表单 (Modal) | `list`（各控件响应值） | 不允许（`index < 0` 报错） | 返回 `response[n]`（第 `n` 个控件的值） |
+| 长表单 (Long) | `int`（被点击按钮的索引） | 返回按钮索引值 | 返回 `n == response`（判断第 `n` 个按钮是否被点击） |
+| 信息表单 (Popup) | `bool`（`True`=确认, `False`=取消） | 返回 `True`/`False` | 返回 `n == int(response)` |
+| 表单关闭 (Cancel) | `int`（关闭原因码：0/1/2） | 返回关闭原因码 | 返回 `n == response` |
 
-> 详见 [3.2.6 花括号语句求值过程](#326-花括号语句求值过程) 中 `{ref, ...}` 的完整说明（含 `FormRefProcesser.ref()` 底层逻辑）。
+详见 [3.2.6 花括号语句求值过程](#326-花括号语句求值过程) 中 `{ref, ...}` 的完整说明。
 
 ### 核心设计约束
 
-- 所有代码**逐行编写**，使用换行符或 `|` 符号分隔语句
-- 语言**不支持注释**
+- 所有代码逐行编写，使用换行符或 `|` 符号分隔语句
+- 语言不支持注释
 - 变量名不能与关键字重名，不能以数字开头，不能包含点号
 - 表达式求值结果必须是四种基础类型之一：`int`、`bool`、`float`、`str`
 - 语言通过 `{...}` 花括号语法与 Minecraft 游戏引擎交互
@@ -122,7 +121,7 @@ NEMC Form Script 是一门嵌入在网易 Minecraft 基岩版（NEMC）中的动
 
 ### 2.1 字符集与编码
 
-源代码使用 **UTF-8** 编码。字符串字面量中的转义序列由 Python 的 `unicode_escape` 解码器处理（具体支持的转义序列见 [2.7 字符串字面量](#27-字面量)）。
+源代码使用 UTF-8 编码。字符串字面量中的转义序列由 Python 的 `unicode_escape` 解码器处理（具体支持的转义序列见 [2.7 字符串字面量](#27-字面量)）。
 
 ### 2.2 空白字符
 
@@ -218,38 +217,36 @@ c=2
 
 #### 2.6.1 变量名
 
-变量名（Variable Name）规则：
+变量名规则：
 
 1. 只能包含字母、数字和下划线 `_`
-2. **不能**以数字开头
-3. **不能**包含引号（`'` 或 `"`）
-4. **不能**包含点号（`.`）
-5. **不能**是关键字
+2. 不能以数字开头
+3. 不能包含引号（`'` 或 `"`）
+4. 不能包含点号（`.`）
+5. 不能是关键字
 
 合法示例：`command_a`、`True_False`、`ref_0`、`_`
 
-非法示例：`233gk5`（以数字开头）、`wo_de_!jie`（含标点）、`command`（关键字）、`True`（关键字）、`math.sqrt`（含点号）
+非法示例：`233gk5`（以数字开头）、`wo_de_!jie`（含标点）、`command`（关键字）、`math.sqrt`（含点号）
 
-> **词法特性说明**：点号 `.` 在词法分析阶段不是 token 分隔符，因此 `a.b` 会被词法分析器读作单个 token。但在语法分析阶段，包含点号的标识符会被尝试解析为浮点数，可能导致解析错误。变量名中禁止使用点号以避免歧义。
+> 注：包含点号的标识符可能被误解析为浮点数字面量，因此变量名中禁止使用点号。
 
 #### 2.6.2 函数名
 
-函数名（Function Name）用于 `{func, 函数名(参数...)}` 语法中，规则与变量名不同：
+函数名用于 `{func, 函数名(参数...)}` 语法中，规则与变量名不同：
 
-1. 可以包含字母、数字、下划线 `_` **和点号 `.`**
+1. 可以包含字母、数字、下划线 `_` 和点号 `.`
 2. 使用点号分隔模块路径，如 `math.sqrt`、`strings.split`
 3. 也可以是类型关键字：`int`、`bool`、`float`、`str`
 
-**词法与语法区分**：
-- 词法阶段：`math.sqrt` 被整体解析为 `TOKEN_ID_WORD("math.sqrt")`
-- 语法阶段：在 `{func, ...}` 上下文中直接作为函数名使用；在表达式上下文中会尝试解析为浮点数/整数/变量
-
 示例：
 ```
-{func, math.sqrt(4)}              # 函数名: "math.sqrt"
-{func, strings.length('hello')}   # 函数名: "strings.length"
-{func, int(3.14)}                 # 函数名: "int"（类型关键字）
+{func, math.sqrt(4)}
+{func, strings.length('hello')}
+{func, int(3.14)}
 ```
+
+> 注：函数名在 `{func, ...}` 上下文中直接作为标识符使用，不经过变量名的验证规则，因此允许包含点号。在表达式上下文中使用 `math.sqrt` 会导致解析错误。
 
 ### 2.7 字面量
 
@@ -277,7 +274,7 @@ c=2
 
 #### 字符串字面量
 
-由单引号 `'` 包裹的字符序列。当词法分析器在字符串中遇到反斜杠 `\` 时，会将 `\` 及其后**一个字符**组合，经 UTF-8 编码后再通过 Python 的 `unicode_escape` 解码器处理。这意味着**仅单字符转义序列**有效：
+由单引号 `'` 包裹的字符序列。支持以下单字符转义序列：
 
 | 转义序列 | 结果 |
 |----------|------|
@@ -295,40 +292,25 @@ c=2
 
 > **多字符转义序列的限制**
 > 
-> 由于词法分析器的实现限制，反斜杠 `\` 后**只读取一个字符**作为转义序列，因此**多字符转义序列不可用**：
+> 多字符转义序列不可用，包括：
 > 
 > - `\xNN`（十六进制，需要2个十六进制数字）
 > - `\uNNNN`（Unicode，需要4个十六进制数字）
 > - `\UNNNNNNNN`（扩展Unicode，需要8个十六进制数字）
 > - `\NNN`（八进制，需要1-3个八进制数字）
 > 
-> **错误行为示例**：
+> 使用多字符转义序列会导致编译时错误 `UnicodeDecodeError`。例如：
 > 
 > ```
-> a = '\x41'     # 编译错误
-> b = 'A'   # 编译错误
+> a = '\x41'     # 错误：UnicodeDecodeError: truncated \xXX escape
+> b = 'A'   # 错误：UnicodeDecodeError: truncated \uXXXX escape
 > ```
 > 
-> **发生的情况**：
-> 
-> 1. 词法分析器读取 `\x`（仅2个字符）
-> 2. 调用 Python 的 `unicode_escape` 解码器处理 `\x`
-> 3. 解码器期望 `\x` 后跟2个十六进制数字，但只收到 `\x`
-> 4. 抛出 **`UnicodeDecodeError: truncated \xXX escape`**（编译时错误）
-> 5. 剩余的 `41` 和 `'` 不会被处理
-> 
-> **错误信息**：
-> 
-> - `\x` → `UnicodeDecodeError: 'unicodeescape' codec can't decode bytes in position 0-1: truncated \xXX escape`
-> - `\u` → `UnicodeDecodeError: 'unicodeescape' codec can't decode bytes in position 0-1: truncated \uXXXX escape`
-> 
-> **替代方案**：
-> 
-> 若需在字符串中包含非 ASCII 字符，请直接在源代码中使用 UTF-8 编码书写：
+> **替代方案**：若需在字符串中包含非 ASCII 字符，直接在源代码中使用 UTF-8 编码书写，或使用 `strings.chr` 函数。
 > 
 > ```
-> a = '你好'        # ✓ 直接使用 UTF-8 字符
-> b = 'A'          # ✓ 如需字符 'A'，直接写入或使用 {func, strings.chr(65)}
+> a = '你好'                           # 正确：直接使用 UTF-8 字符
+> b = {func, strings.chr(65)}          # 正确：生成字符 'A'
 > ```
 
 ```
@@ -414,12 +396,6 @@ c=2
 | 39 | `TOKEN_ID_KEY_WORD_TRUE` | `True` |
 | 40 | `TOKEN_ID_KEY_WORD_FALSE` | `False` |
 
-> **编译器实现要点——两阶段词素分类**：词法分析器**不区分**标识符和数字字面量——两者均产生 `TOKEN_ID_WORD`（payload 为原始字符串）。数字的识别（`int` vs `float` vs 标识符）**延迟到语法分析阶段**：`ExpressionCombine.parse_to_elements` 遇到 `TOKEN_ID_WORD` 时，依次尝试 `try_parse_float`（检查 payload 是否含 `.`）、`try_parse_int`（尝试 Python `int()`）、`try_parse_var`（验证标识符合法性）。这意味着 `123abc` 会被 `try_parse_int` 拒绝后进入 `try_parse_var`，因以数字开头而报错。
-
-> **编译器实现要点——多字符运算符的形成**：词法分析器**每次只产生单个字符的运算符 Token**。`<=`、`>=`、`==`、`!=` 这些多字符运算符是在语法分析阶段由 `try_parse_compare` 和 `try_parse_equal`/`try_parse_not_equal` 将两个连续的 Token 组合识别的。例如 `!=` → `[TOKEN_ID_EXCLAMATION, TOKEN_ID_ASSIGN]` → 识别为 `ELEMENT_ID_NOT_EQUAL`；若 `!` 后跟的不是 `=`，则抛出语法错误。
-
-> **编译器实现要点——点号 `.` 的处理**：`.` 不在 `CHAR_TO_TOKEN_ID` 中，且不是空白字符，因此会被词法分析器当作普通字符读入 `TOKEN_ID_WORD` 的 payload 中。这使得 `math.sqrt` 被正确识别为单个 token。但这也意味着 `3.14` 被整体识别为单个 `TOKEN_ID_WORD("3.14")`，然后在语法分析阶段由 `try_parse_float` 识别为浮点数字面量——而非 `3` `.` `14` 三个 token。
-
 ---
 
 ## 3. 语法与求值
@@ -504,11 +480,11 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 字符串字面量 ::= "'" { 任意字符 | 转义序列 } "'"
 ```
 
-> **语法歧义说明——`=` 的双重角色**：在表达式内部，`=` Token 与紧随的另一个 `=` 组合成 `==`（相等比较）运算符。单独的 `=` 在表达式内部**无效**（非运算符）。因此 `a = b = c` 被解析为 `a = (b == c)`（赋值语句，右侧为相等比较），而非链式赋值。若意图为"将 `b` 的值赋给 `a`"，应写 `a = b`。这是实现中 `try_parse_equal` 要求两个连续 `=` Token 的直接后果。
+> **语法歧义说明——`=` 的双重角色**：在表达式内部，`=` Token 与紧随的另一个 `=` 组合成 `==`（相等比较）运算符。单独的 `=` 在表达式内部无效（非运算符）。因此 `a = b = c` 被解析为 `a = (b == c)`（赋值语句，右侧为相等比较），而非链式赋值。若意图为"将 `b` 的值赋给 `a`"，应写 `a = b`。
 
-> **语法歧义说明——比较不可连用**：`1 < 10 < 100` 会被解析为 `(1 < 10) < 100`，即 `True < 100`（布尔值与整数比较），而非数学意义上的"10 在 1 和 100 之间"。这是因为每个二元比较运算符只接受两个操作数（`compact_operator` 将连续的比较运算符各自紧缩为独立的二元节点），且比较结果（布尔值）会成为下一个比较的左操作数。应写为 `1 < 10 and 10 < 100`。
+> **语法歧义说明——比较不可连用**：`1 < 10 < 100` 会被解析为 `(1 < 10) < 100`，即 `True < 100`（布尔值与整数比较），而非数学意义上的"10 在 1 和 100 之间"。比较运算符只接受两个操作数，比较结果（布尔值）会成为下一个比较的左操作数。应写为 `1 < 10 and 10 < 100`。
 
-> **语法歧义说明——`not` 的结合性**：`not` 是一元右结合运算符，`compact_inverse` 将 `not` 与其后紧跟的**一个**表达式元素结合。因此 `not a and b` → `Inverse(a) and b` → `(not a) and b`，而非 `not (a and b)`。
+> **语法歧义说明——`not` 的结合性**：`not` 是一元右结合运算符，与其后紧跟的一个表达式元素结合。因此 `not a and b` → `(not a) and b`，而非 `not (a and b)`。
 
 ### 3.2 表达式
 
@@ -694,19 +670,18 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 ```
 
 > **运行时约束**：
-> - 此语句**必须在表单回调上下文中使用**（`onsubmit`、`oncancel` 回调）
+> - 此语句必须在表单回调上下文中使用（`onsubmit`、`oncancel` 回调）
 > - 在其他上下文（如命令直接执行、事件监听器、自定义函数）中调用时，抛出运行时错误：
 >   ```
 >   ref: Ref statement can only used under form response environment
 >   ```
-> - 这是**运行时检查**，编译阶段不会报错
-> - 检查机制：`FormRefProcesser` 的 `response` 字段在非表单回调时为 `None`，调用 `ref()` 时检测到此状态即抛出异常
+> - 这是运行时检查，编译阶段不会报错
 
-> **注意**：`{ref, type, index}` 中 `<type>` 的类型断言是编译时确定的，运行时仅做校验。如果 `<type>` 与实际返回值类型不匹配（如对信息表单使用 `{ref, int, -1}` 却得到 `False`），程序会抛出类型断言错误。对信息表单应使用 `{ref, int, -1}` 来获取 `1` 或 `0`（因为底层走 `int(True)=1`/`int(False)=0` 路径）——但需注意，这是取巧的办法，并非设计本意。推荐的做法是在信息表单中使用 `{ref, bool, -1}`。
+> 注：`{ref, type, index}` 中 `<type>` 的类型断言在运行时校验。如果 `<type>` 与实际返回值类型不匹配，程序会抛出类型断言错误。推荐的做法是在信息表单中使用 `{ref, bool, -1}`。
 
 **`{func, <name>(<arg1>, <arg2>, ...)}`**
 
-> **语法要点**：`func` 后必须紧跟**逗号**（`,`），然后才是函数名。即 `{func, 函数名(参数...)}`，而非 `{func 函数名(参数...)}`。
+> 注：`func` 后必须紧跟逗号（`,`），然后才是函数名。即 `{func, 函数名(参数...)}`，而非 `{func 函数名(参数...)}`。
 
 1. 按顺序对每个参数表达式 `<arg1>`, `<arg2>`, ... 求值
 2. 根据 `<name>` 在内建函数注册表中查找对应函数
@@ -714,16 +689,16 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 4. 校验返回值：必须是四种基础类型之一（`int`/`bool`/`float`/`str`），否则抛出错误
 5. 返回该值
 
-`<name>` 可以是带点号的模块路径（如 `math.sqrt`、`strings.split`）——点号在词法分析阶段被当作普通字符，因此 `math.sqrt` 被解析为单个 `TOKEN_ID_WORD`（负载为完整字符串 `"math.sqrt"`）。`<name>` 也可以是类型关键字（`int`、`bool`、`float`、`str`）——此时其效果等同于对应的强制类型转换。注意二者会被编译为不同的字节码——`int(x)` 使用 `HANDLE_CAST` 指令，而 `{func, int(x)}` 使用 `HANDLE_FUNC` 指令——但最终调用的都是 Python 的 `int()` 函数，运行时效果**完全等价**。
+`<name>` 可以是带点号的模块路径（如 `math.sqrt`、`strings.split`），也可以是类型关键字（`int`、`bool`、`float`、`str`）。当使用类型关键字时，其效果等同于对应的强制类型转换，但编译为不同的字节码。
 
-> **可用函数列表**：所有可用的内建函数（即 `<name>` 的合法取值）见 [第 5 章 内建库函数](#5-内建库函数)。
+> 可用函数列表见 [第 5 章 内建库函数](#5-内建库函数)。
 
 ```
 {func, math.sqrt(4)}               → 2.0
 {func, math.pow(2, 3)}             → 8.0
 {func, strings.length('hello')}    → 5
-{func, int(3.14)}                  → 3  （等价于 int(3.14)，效果相同但字节码不同）
-{func, str(100)}                   → '100' （等价于 str(100)）
+{func, int(3.14)}                  → 3
+{func, str(100)}                   → '100'
 ```
 
 #### 3.2.7 表达式求值过程
@@ -871,9 +846,7 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 结果: '玩家: Steve 分数: 9931'
 ```
 
-#### 3.2.8 解析上下文
-
-表达式解析器根据所处位置使用不同的上下文位掩码（Context Bitmask）。不同上下文决定了可用的终止符和允许的语法结构：
+表达式解析器根据所处位置使用不同的上下文位掩码。不同上下文决定了可用的终止符和允许的语法结构：
 
 | 上下文 | 掩码 | 使用场景 | 允许的终止符 |
 |--------|------|---------|-------------|
@@ -883,17 +856,6 @@ func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { 
 | `CONTEXT_PARSE_ARGUMENT` | `1 << 3` | `{func, name(...)}` 的函数参数 | `,`, `)` |
 | `CONTEXT_PARSE_SUB_EXPR` | `1 << 4` | `(...)` 圆括号内、`int(...)` 等强制转换内 | `)` |
 | `CONTEXT_PARSE_BARRIER` | `1 << 5` | `{...}` 花括号语句的内部表达式 | `}` |
-
-例如，在 `a = 1 + 2` 中使用 `CONTEXT_PARSE_ASSIGN`，表达式遇到 `\n` 时终止。在 `{func, math.pow(2, 3)}` 中，`2` 和 `3` 分别在 `CONTEXT_PARSE_ARGUMENT` 上下文中解析，遇到 `,` 或 `)` 时终止。在 `{selector, '@p'}` 中，`'@p'` 在 `CONTEXT_PARSE_BARRIER` 上下文中解析，遇到 `}` 时终止。
-
-表达式解析完成后，通过 `compact_operator` 方法进行**运算符紧缩**，将连续的平级运算符折叠到单个表达式元素中：
-
-```
-[6, *, 8, /, 2, /, 4, *, 2, *, 3]
-→ [Times(6, Divide(8, 2, 4), 2, 3)]
-```
-
-紧缩顺序严格按照优先级从高到低进行：`/` → `*` → `-` → `+` → 比较运算 → `in` → `not` → `and` → `or`。最终 `element_payload` 长度为 1。
 
 ### 3.3 语句
 
@@ -1150,9 +1112,9 @@ fi
 - 循环变量在循环体内可通过赋值语句修改
 - 循环变量可以是 `_`（语义约定：表示不使用循环变量值）。注意 `_` 是合法的变量名，在循环体内仍然可以通过 `_` 读取当前的循环计数值
 - 循环可以嵌套；`continue` 和 `break` 只作用于最内层循环
-- 循环次数为 0 或负数时，循环体**不执行**（循环变量初始值 `0 < N` 不成立，直接跳过循环体）
-- 循环次数必须是 `int` 类型（`bool` 也会被拒绝，因为运行时额外检查了 `isinstance(temp, bool)`）
-- **嵌套循环变量名冲突**：当嵌套循环使用相同的变量名时，内层循环会覆盖外层循环的变量值。因为所有变量（包括循环变量）共享同一个全局变量表，同名变量映射到同一个存储槽位。虽然每个循环的计数器在虚拟机栈上独立维护，但通过变量名读取的值始终是最后一次写入的值。**强烈建议嵌套循环使用不同的变量名**（如 `i`、`j`、`k`）以避免混淆
+- 循环次数为 0 或负数时，循环体不执行
+- 循环次数必须是 `int` 类型（`bool` 也会被拒绝）
+- 嵌套循环变量名冲突：当嵌套循环使用相同的变量名时，内层循环会覆盖外层循环的变量值。强烈建议嵌套循环使用不同的变量名（如 `i`、`j`、`k`）以避免混淆
 
 **执行示例 1——基本循环**：
 
@@ -1328,38 +1290,9 @@ rof
 result
 ```
 
-```
-执行追踪:
-  外层循环第 1 轮 (i 应为 0):
-    栈状态: [3, 0]  (循环次数=3, 计数器=0)
-    variables[i] = 0
-    
-    内层循环第 1 轮:
-      栈状态: [3, 0, 2, 0]
-      variables[i] = 0  (覆盖外层的 i=0)
-      result = 0*10 + 0 = 0
-      
-    内层循环第 2 轮:
-      栈状态: [3, 1, 2, 1]  (注意：外层计数器已变为1)
-      variables[i] = 1  (再次覆盖)
-      result = 0*10 + 1 = 1
-      
-    内层循环结束，弹出内层栈帧
-    此时 variables[i] = 1 (外层期望是 0，但已被内层覆盖)
-  
-  外层循环第 2 轮 (i 应为 1):
-    内层循环覆盖后: result = 101
-  
-  外层循环第 3 轮 (i 应为 2):
-    内层循环覆盖后: result = 10101
+执行追踪：外层循环的计数器在栈上独立维护，但变量 `i` 的值在全局变量表中被内层循环反复覆盖。最终 `result = 10101`（而非预期的 `00011122`）。
 
-最终: result = 10101
-(如果变量独立，预期应为 00011122)
-```
-
-虽然外层循环的迭代仍能正确进行（因为计数器在栈上独立），但在循环体中通过变量名读取的 `i` 值会被内层覆盖，导致逻辑混乱。因此**强烈建议使用不同的变量名**。
-
-**正确做法**：
+建议使用不同的变量名：
 
 ```
 for i, 3:
@@ -1429,91 +1362,69 @@ fi
 
 ### 3.4 抽象语法树
 
-解析完成后，程序被编译为以下七种操作码（Opcode）构成的 AST：
+解析完成后，程序被表示为以下操作码（Opcode）构成的抽象语法树：
 
-| Opcode | 值 | 含义 | Payload | origin_line |
-|--------|---|------|---------|-------------|
-| `OpcodeAssign` | 0 | 赋值 | `tuple[str, ExpressionCombine]` — `(变量名, 表达式)` | 源代码行 |
-| `OpcodeCondition` | 1 | 条件语句 | `list[ConditionCodeBlock]` | `"fi"` |
-| `OpcodeForLoop` | 2 | 循环语句 | `ForLoopCodeBlock` | `"for"` |
-| `OpcodeContinue` | 3 | 跳过本轮循环 | `None` | 源代码行 |
-| `OpcodeBreak` | 4 | 终止循环 | `None` | 源代码行 |
-| `OpcodeExpression` | 5 | 表达式语句 | `ExpressionCombine` | 源代码行 |
-| `OpcodeReturn` | 6 | 返回语句 | `ExpressionCombine` | 源代码行 |
+| Opcode | 含义 | Payload |
+|--------|------|---------|
+| `OpcodeAssign` | 赋值 | 变量名和表达式 |
+| `OpcodeCondition` | 条件语句 | 条件分支列表 |
+| `OpcodeForLoop` | 循环语句 | 循环变量、次数表达式、循环体 |
+| `OpcodeContinue` | 跳过本轮循环 | 无 |
+| `OpcodeBreak` | 终止循环 | 无 |
+| `OpcodeExpression` | 表达式语句 | 表达式 |
+| `OpcodeReturn` | 返回语句 | 表达式 |
 
-所有 Opcode 类继承自 `OpcodeBase`（字段：`opcode_id: int`、`opcode_payload: Any`、`origin_line: str`）。
+条件语句由多个条件分支组成，每个分支包含：
+- 条件表达式（`else` 分支的条件为空）
+- 该分支下的代码块
 
-`ConditionCodeBlock` 结构：
-- `condition: ExpressionCombine | None` — `None` 表示 `else` 分支
-- `state_line: str` — 条件声明行（用于错误信息）
-- `code_block: list[OpcodeBase]` — 该分支下的代码
+循环语句包含：
+- 循环变量名
+- 循环次数表达式
+- 循环体代码块
 
-`ForLoopCodeBlock` 结构：
-- `variable: str` — 循环变量名
-- `repeat_times: ExpressionCombine` — 循环次数表达式
-- `state_line: str` — 循环声明行（用于错误信息）
-- `code_block: list[OpcodeBase]` — 循环体
+#### 3.4.1 表达式元素类型
 
-#### 3.4.1 ExpressionElement 类型体系
+表达式被解析为树状结构，由以下元素类型构成：
 
-表达式被解析为由 `ExpressionElement` 子类构成的树。以下是完整的 25 种元素类型：
+**字面量与变量**：
 
-**字面量与变量**（`ExpressionLiteral`，字段 `element_id: int, element_payload: Any`）：
+| 类型 | 含义 | 示例 |
+|------|------|------|
+| 变量 | 变量引用 | `x` |
+| 整数 | 整数字面量或 `int(expr)` | `42`、`int(3.14)` |
+| 布尔 | 布尔字面量或 `bool(expr)` | `True`、`bool(x)` |
+| 浮点 | 浮点字面量或 `float(expr)` | `3.14`、`float(5)` |
+| 字符串 | 字符串字面量或 `str(expr)` | `'hello'`、`str(123)` |
 
-| Element ID | 常量 | element_payload 类型 | 说明 |
-|-----------|------|---------------------|------|
-| 0 | `ELEMENT_ID_VAR` | `str` | 变量名（如 `x`） |
-| 12 | `ELEMENT_ID_INT` | `int` 或 `ExpressionCombine` | 整数字面量；若为 `ExpressionCombine` 则表示 `int(expr)` 强制转换 |
-| 13 | `ELEMENT_ID_BOOL` | `bool` 或 `ExpressionCombine` | 布尔字面量或 `bool(expr)` 强制转换 |
-| 14 | `ELEMENT_ID_FLOAT` | `float` 或 `ExpressionCombine` | 浮点数字面量或 `float(expr)` 强制转换 |
-| 15 | `ELEMENT_ID_STR` | `str` 或 `ExpressionCombine` | 字符串字面量或 `str(expr)` 强制转换 |
+**花括号语句**：
 
-**花括号语句**（各自独立类，均继承 `ExpressionElement`）：
+| 类型 | 语法 | 说明 |
+|------|------|------|
+| 表单引用 | `{ref, type, index}` | 引用表单响应值 |
+| 目标选择器 | `{selector, target}` | 解析目标选择器 |
+| 记分板查询 | `{score, target, board}` | 查询记分板分数 |
+| 命令执行 | `{command, line}` | 执行游戏命令 |
+| 函数调用 | `{func, name(args...)}` | 调用内建函数 |
 
-| Element ID | 类名 | element_payload | 说明 |
-|-----------|------|-----------------|------|
-| 16 | `ExpressionReference` | `list[TYPE_ENUM, ExpressionCombine]` | `{ref, type, index}` |
-| 17 | `ExpressionSelector` | `ExpressionCombine` | `{selector, target}` |
-| 18 | `ExpressionScore` | `list[ExpressionCombine, ExpressionCombine]` | `{score, target, board}` |
-| 19 | `ExpressionCommand` | `ExpressionCombine` | `{command, line}` |
-| 20 | `ExpressionFunction` | `list[str, list[ExpressionCombine]]` | `{func, name(args...)}` — `[函数名, [参数表达式列表]]` |
+**运算符**：
 
-**二元/多元运算符**（`ExpressionOperator` 子类，字段 `element_payload: list[ExpressionElement]`，储存操作数列表）：
-
-| Element ID | 类名 | 结合性 | 说明 |
-|-----------|------|--------|------|
-| 7 | `ExpressionAdd` | 左 | `+`（n 元：`a + b + c` → `Add(a, b, c)`） |
-| 8 | `ExpressionRemove` | 左 | `-`（n 元：`a - b - c` → `Remove(a, b, c)`） |
-| 9 | `ExpressionTimes` | 左 | `*`（n 元） |
-| 10 | `ExpressionDivide` | 左 | `/`（n 元） |
-| 2 | `ExpressionEqual` | 不可连用 | `==`（二元） |
-| 11 | `ExpressionNotEqual` | 不可连用 | `!=`（二元） |
-| 3 | `ExpressionLessThan` | 不可连用 | `<`（二元） |
-| 4 | `ExpressionGreaterThan` | 不可连用 | `>`（二元） |
-| 5 | `ExpressionLessEqual` | 不可连用 | `<=`（二元） |
-| 6 | `ExpressionGreaterEqual` | 不可连用 | `>=`（二元） |
-| 21 | `ExpressionAnd` | 左（短路） | `and`（n 元） |
-| 22 | `ExpressionOr` | 左（短路） | `or`（n 元） |
-| 23 | `ExpressionIn` | 不可连用 | `in`（二元） |
-| 24 | `ExpressionInverse` | 右（一元） | `not`（一元，`element_payload` 只有 1 个元素） |
-
-**其他**：
-
-| Element ID | 类名 | 说明 |
-|-----------|------|------|
-| 1 | `ExpressionCombine` | 复杂表达式容器——解析完成后 `element_payload` 恰好包含 1 个上述元素 |
-
-**辅助类**：`ExpressionNormal(element_id: int)` — 仅用于解析中间阶段，标记运算符位置，最终 AST 中不出现。
-
-#### 3.4.2 编译器内部状态：ForLoopEnv
-
-循环编译期间传递的上下文：
-
-```
-ForLoopEnv:
-  continue_pc: int       # continue 应跳转到哪个 pc
-  end_indexes: list[int] # 所有 break 占位跳转的 pc 偏移列表（编译完成后回填）
-```
+| 类型 | 符号 | 结合性 | 说明 |
+|------|------|--------|------|
+| 加法 | `+` | 左结合 | 多元运算（`a + b + c`） |
+| 减法 | `-` | 左结合 | 多元运算（`a - b - c`） |
+| 乘法 | `*` | 左结合 | 多元运算 |
+| 除法 | `/` | 左结合 | 多元运算 |
+| 相等 | `==` | 不可连用 | 二元比较 |
+| 不等 | `!=` | 不可连用 | 二元比较 |
+| 小于 | `<` | 不可连用 | 二元比较 |
+| 大于 | `>` | 不可连用 | 二元比较 |
+| 小于等于 | `<=` | 不可连用 | 二元比较 |
+| 大于等于 | `>=` | 不可连用 | 二元比较 |
+| 逻辑与 | `and` | 左结合（短路） | 多元运算 |
+| 逻辑或 | `or` | 左结合（短路） | 多元运算 |
+| 成员检查 | `in` | 不可连用 | 二元运算 |
+| 逻辑取反 | `not` | 右结合 | 一元运算 |
 
 ### 3.5 类型系统与类型转换
 
@@ -1521,12 +1432,12 @@ ForLoopEnv:
 
 语言仅支持四种基础数据类型，所有表达式的求值结果必须是其中之一：
 
-| 类型 | 枚举值 | 底层 Python 类型 | 说明 |
-|------|--------|-----------------|------|
-| 整数 `int` | `TYPE_ENUM_INT` (0) | `int` | 32 位有符号整数，范围 `[-2147483648, 2147483647]` |
-| 布尔值 `bool` | `TYPE_ENUM_BOOL` (1) | `bool` | `True`（真）或 `False`（假） |
-| 浮点数 `float` | `TYPE_ENUM_FLOAT` (2) | `float` | 双精度浮点数 |
-| 字符串 `str` | `TYPE_ENUM_STR` (3) | `str` | UTF-8 编码字符串 |
+| 类型 | 说明 |
+|------|------|
+| 整数 `int` | 32 位有符号整数，范围 `[-2147483648, 2147483647]` |
+| 布尔值 `bool` | `True`（真）或 `False`（假） |
+| 浮点数 `float` | 双精度浮点数 |
+| 字符串 `str` | UTF-8 编码字符串 |
 
 #### 3.5.2 强制类型转换
 
@@ -1545,14 +1456,14 @@ ForLoopEnv:
 | `int('5.99')` | 报错 | 浮点字符串不能直接转整数 |
 | `int('a')` | 报错 | 非数字字符串 |
 
-**`bool(expr)`**：对 `expr` 求值，将结果转换为布尔值。底层直接调用 Python 的 `bool()`。
+**`bool(expr)`**：对 `expr` 求值，将结果转换为布尔值。
 
 | 输入 | 输出 | 规则 |
 |------|------|------|
 | `bool(0)` / `bool(0.0)` / `bool(False)` / `bool('')` | `False` | 零值、空字符串、`False` 为假 |
 | `bool(1)` / `bool(2.5)` / `bool('hello')` / `bool('0')` | `True` | 其余非零、非空值均为真 |
 
-**注意**：与 Python 一致，空字符串 `bool('')` 返回 `False`。由于底层实现直接调用 Python 的 `bool()`，其行为与 Python 完全相同：`0`、`0.0`、`False`、`''`（空字符串）均为假值，其余均为真值。
+注意：空字符串 `bool('')` 返回 `False`。转换规则为：`0`、`0.0`、`False`、`''`（空字符串）均为假值，其余均为真值。
 
 **`float(expr)`**：对 `expr` 求值，将结果转换为浮点数。
 
@@ -1586,50 +1497,29 @@ ForLoopEnv:
 
 虚拟机在以下场景执行强制类型校验：
 
-- **循环次数**：`LOOP_CHECK(DATA_TYPE)` 确保循环次数为 `int`，**严格排除 `bool` 类型**
-- **`{command, ...}`**：参数必须是 `str`
-- **`{score, ...}`**：两个参数都必须为 `str`
-- **`{selector, ...}`**：参数必须为 `str`
-- **`{ref, ...}`**：索引参数必须为 `int`（**严格排除 `bool`**），返回值与声明的类型进行断言匹配
-- **内建函数返回值**：必须为四种基础类型之一
+- 循环次数：必须为 `int`，严格排除 `bool` 类型
+- `{command, ...}`：参数必须是 `str`
+- `{score, ...}`：两个参数都必须为 `str`
+- `{selector, ...}`：参数必须为 `str`
+- `{ref, ...}`：索引参数必须为 `int`（严格排除 `bool`），返回值与声明的类型进行断言匹配
+- 内建函数返回值：必须为四种基础类型之一
 
 ##### 布尔值严格排除规则
 
-尽管底层实现使用 Python（其中 `bool` 是 `int` 的子类，`isinstance(True, int)` 为真），**NEMC Form Script 的类型系统严格区分 `bool` 和 `int`**。以下位置会明确拒绝布尔值：
+NEMC Form Script 的类型系统严格区分 `bool` 和 `int`。以下位置会明确拒绝布尔值：
 
-1. **循环控制**：
-   - `for i, <expr>:` 中的 `<expr>` 必须求值为 `int`，不接受 `bool`
-   - 错误示例：`for i, True:` ❌
-   - 正确示例：`for i, int(True):` ✅
+1. 循环控制：`for i, <expr>:` 中的 `<expr>` 必须求值为 `int`，不接受 `bool`
+2. 表单引用：`{ref, type, index}` 中的 `index` 必须是 `int`，不接受 `bool`；当 `type` 为 `int` 时，返回值也会被断言为 `int`（拒绝 `bool`）
+3. 内建库函数：`math.format(number, accuracy)` 的两个参数都不接受 `bool`；`slices.sum`、`set.sum`、`tuple.sum` 的结果不能是 `bool`
+4. 表单系统：下拉框的 `default` 值必须是 `int`（索引），不接受 `bool`；滑块的数值参数不接受 `bool`；长表单的响应值必须是 `int`（按钮索引），不接受 `bool`
+5. 其他场景：编译缓存大小设置、命令执行上下文坐标和维度ID
 
-2. **表单引用**：
-   - `{ref, type, index}` 中的 `index` 必须是 `int`，不接受 `bool`
-   - 当 `type` 为 `int` 时，返回值也会被断言为 `int`（拒绝 `bool`）
+设计理由：
+- 语义明确性：`bool` 和 `int` 在语言层面是完全不同的类型，不应混用
+- 防止逻辑错误：避免 `True`/`False` 被隐式转换为 `1`/`0` 导致的混淆
+- 类型系统一致性：确保用户代码的类型意图清晰可预测
 
-3. **内建库函数**：
-   - `math.format(number, accuracy)`: 两个参数都不接受 `bool`
-   - `slices.sum(ptr)`, `set.sum(ptr)`, `tuple.sum(ptr)`: 结果不能是 `bool`
-
-4. **表单系统**：
-   - 下拉框（dropdown）的 `default` 值：必须是 `int`（索引），不接受 `bool`
-   - 滑块（slider/step slider）的数值参数：不接受 `bool`
-   - 长表单（long form）的响应值：必须是 `int`（按钮索引），不接受 `bool`
-
-5. **其他场景**：
-   - 编译缓存大小设置：必须是 `int`
-   - 命令执行上下文坐标和维度ID：必须是数值类型，不接受 `bool`
-
-**设计理由**：
-
-- **语义明确性**：`bool` 和 `int` 在语言层面是完全不同的类型，不应混用
-- **防止逻辑错误**：避免 `True`/`False` 被隐式转换为 `1`/`0` 导致的混淆
-- **类型系统一致性**：确保用户代码的类型意图清晰可预测
-
-**类型转换**：
-
-如需在上述场景使用布尔值，必须显式转换：
-- 使用 `int(bool_expr)` 将布尔值转换为整数（`True` → `1`, `False` → `0`）
-- 示例：`for i, int(flag):`
+如需在上述场景使用布尔值，必须显式转换：使用 `int(bool_expr)` 将布尔值转换为整数（`True` → `1`, `False` → `0`）。例如：`for i, int(flag):`
 
 ### 3.6 短路求值
 
@@ -1682,55 +1572,26 @@ A or B or C or ...:
 
 ### 3.7 变量映射与作用域
 
-#### 编译时变量分配
+NEMC Form Script 采用单一全局作用域。所有变量（包括循环变量、函数参数、自定义函数内部的局部变量）都映射到同一个全局变量表。
 
-变量名在编译阶段通过 `VariableMapping` 被映射为整数索引：
+编译阶段：变量名被映射为整数索引。同名变量映射到同一个索引，多次赋值会覆盖同一位置。
 
-```
-VariableMapping:
-  _name_to_index: dict[str, int]  # 变量名 → 数组索引
-  _index_to_name: list[str]       # 数组索引 → 变量名（用于错误信息）
-```
+运行阶段：虚拟机维护一个列表 `variables`，通过索引读写变量值。变量初始值为 `None`，读取未赋值的变量会抛出错误。
 
-分配规则：
-- 编译时首次遇到变量名（赋值语句左侧或循环变量声明）时，调用 `index_by_name(varname, readonly=False)` 分配新索引
-- 表达式中的变量引用调用 `index_by_name(varname, readonly=True)` 查找索引；若变量从未被赋值，此处返回 `None`
-
-#### 运行时变量存储
-
-运行时变量值存储在一个固定长度的列表中：
-
-```
-variables: list[int | bool | float | str | None] = [None] * vars_len
-```
-
-- 变量初始值为 `None`
-- 通过 `LOAD_VALUE(var_index)` 读取，若值为 `None` 则抛出 `Variable used before assignment`
-- 通过 `STORE_VALUE(var_index)` 写入
-- 可通过 `var_maps` 参数在程序启动前预初始化变量值
-
-#### 作用域
-
-当前实现为**全局扁平作用域**：
-- 所有变量（包括循环变量）共享同一个 `VariableMapping`
+作用域特性：
+- 所有变量共享同一作用域
 - 循环变量在循环体内可被读取和修改
 - 无局部作用域或块级作用域
 - 变量生命周期与程序执行周期一致
+- 在 `if`/`for` 块中首次赋值的变量，在块外仍然可见
 
-**实际影响**：
-- 所有变量（包括循环变量）共享同一个 `VariableMapping`
-- 嵌套循环中使用相同循环变量名时，内层循环会**覆盖**外层循环的变量值。这是因为：
-  1. 所有变量共享一个全局 `VariableMapping`，同名变量映射到同一个整数索引
-  2. 每个循环的计数器虽然在虚拟机栈上独立维护（通过 `LOOP_JUMP` 指令的栈操作）
-  3. 但循环变量的值通过 `variables[var_index]` 写入全局变量表，同一索引会被反复覆盖
-  4. 在循环体中通过变量名读取时，只能获取最后一次写入的值（即最内层循环的当前值）
-- 在 `if`/`for` 块中首次赋值的变量，在块外仍然可见和可用
+嵌套循环变量覆盖：当嵌套循环使用相同变量名时，内层循环会覆盖外层循环的变量值。因为同名变量映射到同一个存储槽位，虽然每个循环的计数器在虚拟机栈上独立维护，但通过变量名读取的值始终是最后一次写入的值。
 
 ### 3.8 错误处理
 
-#### 编译时错误（语法错误）
+#### 编译时错误
 
-由 `CodeParser` 在解析阶段抛出，错误信息格式：
+由语法解析器在解析阶段抛出，错误信息格式：
 
 ```
 Syntax Error.
@@ -1746,13 +1607,13 @@ Syntax Error.
 
 | 错误类型 | 触发条件 |
 |----------|---------|
-| 字符串未闭合 | 词法分析时遇到 EOF 而未找到配对单引号 |
-| 表达式解析失败 | 表达式无法被正确解析（如运算符使用错误、括号不匹配） |
+| 字符串未闭合 | 遇到文件结束而未找到配对单引号 |
+| 表达式解析失败 | 运算符使用错误、括号不匹配 |
 | 语句格式错误 | 赋值缺少 `=`、条件/循环缺少 `:`、`{...}` 未闭合 |
 | 未闭合的 `fi`/`rof` | 条件语句/循环语句缺少结束标记 |
 | 错误的 `elif`/`else` 位置 | `elif` 出现在 `else` 之后，或 `else` 出现多次 |
 | 非法变量名 | 变量名以数字开头、包含引号/点号，或是关键字 |
-| `break`/`continue` 出现在循环外 | 编译期可部分检测 |
+| `break`/`continue` 出现在循环外 | 部分情况可在编译期检测 |
 | 关键字出现在表达式中 | 如 `ref`、`selector` 等未放在 `{...}` 内 |
 
 #### 运行时错误
@@ -1781,55 +1642,65 @@ Runtime Error in Condition. / Runtime Error in For Loop.
   <代码块中出错的具体代码行>
 ```
 
-错误定位通过 `CheckPoint` 和二分查找实现：根据当前 `pc` 在 `check_point` 列表中二分查找对应的检查点，从中获取源代码行信息。
+#### 运行时错误
+
+由虚拟机在执行阶段抛出，错误信息格式：
+
+```
+Runtime Error.
+
+- Error -
+  <具体错误描述>
+
+- Code -
+  <出错的源代码行>
+```
 
 常见运行时错误：
 
 | 错误类型 | 触发条件 |
 |----------|---------|
 | `Variable used before assignment` | 读取从未被赋值的变量 |
-| 循环次数不是整数 | `LOOP_CHECK(DATA_TYPE)` 校验失败 |
+| 循环次数不是整数 | 循环次数类型校验失败 |
 | 类型断言失败 | `{ref, type, index}` 获取的值与声明的类型不匹配 |
 | 函数未定义 | 调用了不存在的内建函数名 |
-| `continue`/`break` 在循环体外 | 编译为 `INTERNAL_PANIC` 指令 |
-| 无返回值 | 程序执行完毕无 `return` 且无表达式语句，`require_return` 为真 |
+| `continue`/`break` 在循环体外 | 控制流语句使用位置错误 |
+| 无返回值 | 程序执行完毕无 `return` 且无表达式语句 |
 | 算术/类型错误 | 如整数与字符串相加、无效的类型转换参数等 |
 | 除零错误 | 除法/取模的除数为 0 |
 
-#### 异常捕获机制
+#### 异常处理机制
 
-该语言**不提供**用户层面的 `try/catch` 异常捕获语法。所有运行时异常（无论是语言自身抛出的 `InternalException` 还是 Python 层的 `ValueError`/`TypeError`/`IndexError` 等）均会导致程序**立即终止**，并通过检查点定位输出错误信息。
+该语言不提供用户层面的 `try/catch` 异常捕获语法。所有运行时异常均会导致程序立即终止，并输出错误信息。
 
-**特殊例外——异步回调中的异常静默丢弃**：
+**特殊情况——异步回调中的异常静默丢弃**：
 
-`utils.async_run_func` 和 `utils.async_run_cmd`（及其别名 `gofn`/`gocmd`）的回调函数在 `GameTickTimer._consume` 中被 `try/except Exception: pass` 包裹。这意味着：
+`utils.async_run_func` 和 `utils.async_run_cmd`（及其别名 `gofn`/`gocmd`）的回调函数中抛出的异常会被静默丢弃。这意味着：
 
-- 延迟执行的函数或命令中的**运行时错误不会导致程序终止**
-- 错误信息**不会**被输出到任何可见位置
+- 延迟执行的函数或命令中的运行时错误不会导致程序终止
+- 错误信息不会被输出到任何可见位置
 - 回调中的异常被静默丢弃，无法被外部感知
 
 因此，在使用异步延迟函数时，建议在自定义函数内部自行进行参数校验和错误处理。
 
-**同步执行 vs 异步回调的错误处理对比**：
+同步执行 vs 异步回调的错误处理对比：
 
 | 执行方式 | 异常行为 | 错误信息 | 调试难度 |
 |---------|---------|---------|---------|
 | 同步代码（直接执行） | 抛出异常，终止程序 | 完整的错误消息和源码行定位 | 容易 |
 | `{command, ...}` | 命令错误不抛异常，返回成功次数 | 游戏内命令错误提示 | 中等 |
-| `utils.async_run_func` / `gofn` | 异常被静默丢弃 | **无任何错误信息** | 困难 |
-| `utils.async_run_cmd` / `gocmd` | 异常被静默丢弃 | **无任何错误信息** | 困难 |
+| `utils.async_run_func` / `gofn` | 异常被静默丢弃 | 无任何错误信息 | 困难 |
+| `utils.async_run_cmd` / `gocmd` | 异常被静默丢弃 | 无任何错误信息 | 困难 |
 
-**调试异步回调的建议**：
+调试异步回调的建议：
 
-由于异步回调中的异常被静默丢弃，开发者需要采用以下策略进行调试：
+1. 显式日志记录：在异步函数开头和关键步骤使用命令输出调试信息
+2. 变量状态检查：在异步函数内部主动检查参数和变量状态
+3. 分阶段测试：先在同步代码中测试函数逻辑，确认正确后再包装为异步调用
+4. 零延迟测试：使用 `delay=0` 立即执行回调，此时异常会正常抛出
+5. 防御性编程：在异步函数内部使用条件检查，提前验证前置条件
 
-1. **显式日志记录**：在异步函数开头和关键步骤使用 `{command, 'say [DEBUG] 函数名: 步骤描述'}` 输出调试信息
-2. **变量状态检查**：在异步函数内部主动检查参数和变量状态，通过记分板或命令输出验证值是否符合预期
-3. **分阶段测试**：先在同步代码（非异步）中测试函数逻辑，确认正确后再包装为异步调用
-4. **零延迟测试**：使用 `delay=0` 立即执行回调（同步执行），此时异常会正常抛出并可见
-5. **防御性编程**：在异步函数内部使用条件检查，提前验证前置条件并通过游戏内消息报告异常
-
-**零延迟测试示例**：
+零延迟测试示例：
 ```
 # 开发阶段：delay=0，错误会立即抛出
 {func, utils.async_run_func(0, 'my_function', arg1, arg2)}
@@ -1838,210 +1709,102 @@ Runtime Error in Condition. / Runtime Error in For Loop.
 {func, utils.async_run_func(20, 'my_function', arg1, arg2)}
 ```
 
-**防御性编程示例**（在自定义函数中）：
+防御性编程示例：
 ```
-# 自定义函数 validate_and_execute 的实现
+# 在自定义函数中进行前置检查
 if not {func, object.is_ptr(target_id)}:
-    {command, 'tellraw @a {"rawtext":[{"text":"§c错误: 无效的目标ID"}]}'}
+    {command, 'tellraw @a {"rawtext":[{"text":"错误: 无效的目标ID"}]}'}
     return 0
 fi
 # ... 继续执行逻辑
 ```
 
-**内建函数中的类型校验**：
-
-部分内建函数在内部进行了显式的参数类型校验（如 `command.set_executor` 检查字符串类型、`strings.*` 通过 `_force_cast` 检查字符串类型），这些校验失败时抛出明确的异常信息。其他函数依赖 Python 底层运算符的类型检查，抛出的是 Python 原生异常（如 `TypeError: unsupported operand type(s)`）。
-
 ---
 
 ## 4. 编译与虚拟机实现
 
-> 本章描述编译器与虚拟机内部实现细节。用户层面的表达式求值和语句执行语义已在 [3.2.7](#327-表达式求值过程) 和 [3.3](#33-语句) 中详述。
+> 本章描述编译器与虚拟机的内部实现细节，供有兴趣了解语言实现机制的读者参考。
 
 ### 4.1 编译流水线概览
 
 ```
 源代码 (str)
   │
-  ▼ 词法分析 (Sentence.parse_all)
+  ▼ 词法分析
 Token 序列 (list[Token])
   │
-  ▼ 语法分析 (CodeParser.parse)
+  ▼ 语法分析
 AST (list[OpcodeBase])
   │
-  ▼ 代码生成 (CodeCompiler.compile)
-字节码 + 检查点 + 变量映射表 (CompileResult)
+  ▼ 代码生成
+字节码 + 检查点 + 变量映射表
   │
-  ▼ 虚拟机执行 (CodeRunner.running)
+  ▼ 虚拟机执行
 返回值 (int | bool | float | str | None)
 ```
 
-### 4.2 词法分析实现
+### 4.2 词法分析
 
-由 `Sentence` 类实现，基于 `StringReader` 字符流。
+词法分析器将源代码字符流转换为 Token 序列。
 
-**算法流程**：
+算法流程：
 
-1. 调用 `jump_space()` 跳过空格和制表符
+1. 跳过空格和制表符
 2. 读取第一个字符：
-   - 若为 `'`：调用 `parse_string()` 解析字符串字面量（处理转义）
-   - 若为单字符运算符/分隔符（`CHAR_TO_TOKEN_ID` 映射表中的字符）：直接生成对应 Token
+   - 若为 `'`：解析字符串字面量（处理转义）
+   - 若为单字符运算符/分隔符：直接生成对应 Token
    - 否则：持续读取直到遇到空白或运算符字符，形成词素
-3. 词素与 `KEY_WORD_TO_TOKEN_ID` 匹配：
-   - 命中 → 关键字 Token
-   - 未命中 → `TOKEN_ID_WORD`（后续由语法分析器进一步分类）
+3. 词素与关键字表匹配：
+   - 命中：生成关键字 Token
+   - 未命中：生成 `TOKEN_ID_WORD`（后续由语法分析器进一步分类）
 
-**字符串解析**（`StringReader.parse_string`）：持续读取直到遇到未转义的单引号 `'`。当遇到 `\` 时，将 `\` 和后续字符作为转义序列用 `unicode_escape` 解码。
+字符串解析：持续读取直到遇到未转义的单引号 `'`。当遇到 `\` 时，将 `\` 和后续一个字符作为转义序列解码。
 
-### 4.3 语法分析实现
+### 4.3 语法分析
 
-由 `CodeParser` 类实现，基于 `SentenceReader`（Token 流）。
+语法分析器将 Token 序列转换为抽象语法树（AST）。
 
-#### 4.3.1 入口算法
+主要流程：
 
-`CodeParser` 初始化时自动在源代码末尾追加 `\n`，确保源码总是以换行符结尾。
+1. 初始化语句块列表
+2. 循环解析每条语句：
+   - 先尝试解析为表达式语句
+   - 若失败，根据首个 Token 判断语句类型（赋值/条件/循环/返回/控制流）
+   - 空行被自动跳过
+3. 返回语句块列表
 
-**`CodeParser.parse()` 主循环**：
+表达式解析：
+1. 将 Token 转换为平铺的表达式元素列表
+2. 按优先级从高到低依次紧缩运算符
+3. 最终生成单个表达式树
 
-```
-1. 初始化 code_block = []
-2. 循环调用 _parse_code():
-   a. 若返回 (Opcode, None) → 有效语句，追加到 code_block，调用
-      _validate_next_line 确认语句后有行分隔符，继续循环
-   b. 若返回 (None, None) → Token 流耗尽，退出循环
-   c. 若返回 (None, (Token, ...)):
-      - 若 Token 是 TOKEN_ID_SEPSEPARATE → 空行/空白行，跳过 (continue)
-      - 否则 → 语法错误
-3. 返回 code_block
-```
+### 4.4 代码生成
 
-> **关键实现细节——空行处理**：`_parse_code` 首先尝试将当前行解析为表达式语句。当遇到空行（仅含 `\n` 或 `|`）时，表达式解析立即因遇到 `TOKEN_ID_SEPSEPARATE` 而终止，产生空 payload。`parse()` 的 compact 检查失败（`len(element_payload) != 1`），抛出异常。`_parse_code` 捕获后回退指针，读取第一个 Token 发现是 `TOKEN_ID_SEPSEPARATE`。主循环的 `parse()` 方法识别此情况后直接跳过（`continue`），实现了空行的忽略。条件语句体和循环语句体中的空行同理（`_parse_condition` 和 `_parse_for_loop` 各自处理）。
+代码生成阶段将 AST 转换为线性字节码序列。
 
-**`_parse_code()` 内部流程**：
+主要任务：
+- 遍历 AST 节点，生成对应的字节码指令
+- 生成检查点（CheckPoint），用于运行时错误定位
+- 处理跳转指令的地址回填（条件语句、循环语句）
+- 生成变量映射表
 
-```
-1. 记录当前指针位置
-2. 尝试 ExpressionCombine.parse(CONTEXT_PARSE_ASSIGN):
-   成功 → 返回 OpcodeExpression(expr, 源代码行)
-   失败 → 捕获异常，回退指针到记录位置
-3. 读取第一个 Token:
-   - TOKEN_ID_WORD             → _parse_assign()    (赋值，下文详解)
-   - TOKEN_ID_KEY_WORD_IF      → _parse_condition() (条件)
-   - TOKEN_ID_KEY_WORD_FOR     → _parse_for_loop()  (循环)
-   - TOKEN_ID_KEY_WORD_RETURN  → _parse_return()    (返回)
-   - TOKEN_ID_KEY_WORD_CONTINUE → OpcodeContinue    (跳过)
-   - TOKEN_ID_KEY_WORD_BREAK   → OpcodeBreak        (终止)
-   - None (流耗尽)             → 返回 (None, None)
-   - 其他                      → 返回 (None, (Token, start, end, err))
-      供上层处理 (elif/else/fi/rof/SEPSEPARATE)
-```
+### 4.5 虚拟机执行
 
-> **关键实现细节——赋值与等号的消歧**：`_parse_code` **先尝试表达式解析**。对于 `a = 1`：表达式解析读到 `a`（变量）→ 读到 `=` → 调用 `try_parse_equal` → 要求下一个 Token 也是 `=` → 但下一个 Token 是 `1` → 失败。`_parse_code` 捕获异常后回退，走 "第一个 Token 是 WORD → `_parse_assign`" 路径。`_parse_assign` 验证变量名、确认后跟 `=`、然后以 `CONTEXT_PARSE_ASSIGN` 解析右侧表达式。对于 `a == 1`：表达式解析读到 `a` → 读到 `=` → `try_parse_equal` 读下一个 Token 发现是 `=` → 成功识别 `==` → 表达式解析成功 → 返回 `OpcodeExpression`。
+虚拟机是基于栈的解释器，执行字节码序列。
 
-#### 4.3.2 表达式解析流程 (`ExpressionCombine.parse`)
+核心组件：
+- `code`：字节码数组
+- `stack`：操作数栈
+- `variables`：变量值数组
+- `pc`：程序计数器
+- `result`：返回值寄存器
 
-1. `parse_to_elements`：遍历 Token 流，将 Token 转换为平铺的 `ExpressionElement` 列表
-2. 按优先级从高到低依次调用 `compact_operator`：
-   - `/` → `*` → `-` → `+`
-   - `>` → `<` → `>=` → `<=` → `==` → `!=`
-   - `in` → `not`（`compact_inverse`）→ `and` → `or`
-3. 紧缩后 `element_payload` 长度为 1
-
-**运算符紧缩**（`compact_operator`）：将连续的平级运算符折叠到单个 `ExpressionOperator` 中：
-
-```
-[6, *, 8, /, 2, /, 4, *, 2, *, 3]
-  → compact_operator("/", ExpressionDivide)
-  → [6, *, Divide(8, 2, 4), *, 2, *, 3]
-  → compact_operator("*", ExpressionTimes)
-  → [Times(6, Divide(8, 2, 4), 2, 3)]
-```
-
-#### 4.3.3 检查点系统
-
-`CheckPoint` 用于运行时错误定位，在编译阶段同步生成。每个 `CheckPoint` 关联一段字节码范围到其对应的源代码行：
-
-```
-CheckPoint:
-  point_type: int   # CHECK_POINT_TYPE_NORMAL (0) | CONDITION (1) | FOR_LOOP (2)
-  start_pc: int     # 该行代码对应字节码的起始 pc
-  end_pc: int       # 该行代码对应字节码的结束 pc
-  payload: list[str] # 源代码行信息
-```
-
-**生成规则**：
-
-| 语句类型 | point_type | payload 内容 |
-|---------|-----------|-------------|
-| 顶层语句（赋值/表达式/return/continue/break） | `NORMAL` (0) | `[源代码行]` |
-| 条件语句的 `if`/`elif` 条件部分 | `CONDITION` (1) | `[条件声明行]` |
-| 条件语句体内语句 | `CONDITION` (1) | `[条件声明行, 体内源代码行]` |
-| 循环语句的 `for` 头部 | `FOR_LOOP` (2) | `[循环声明行]` |
-| 循环语句体内语句 | `FOR_LOOP` (2) | `[循环声明行, 体内源代码行]` |
-
-**错误定位**：`_chk_by_pc(pc)` 在 `check_point` 列表中二分查找 `start_pc <= pc <= end_pc` 的检查点。`check_point` 列表按 `start_pc` 升序排列。
-
-### 4.4 字节码指令集
-
-共 18 条指令。字节码是线性序列，每条指令占 1–3 个槽位（操作码自身占 1 个槽位）：
-
-| 操作码 | 值 | 槽位数 | 操作数 | 栈变化 | 说明 |
-|--------|---|--------|--------|--------|------|
-| `LOAD_CONST` | 0 | 2 | `[+1] CONST: any` | `→ val` | 将常量 `C` 压入栈顶。`CONST` 可以是 `int`/`bool`/`float`/`str` |
-| `LOAD_VALUE` | 1 | 2 | `[+1] VAR_INDEX: int` | `→ variables[I]` | 将 `variables[I]` 压栈；若为 `None` 则抛出 `Variable used before assignment` |
-| `STORE_VALUE` | 2 | 2 | `[+1] VAR_INDEX: int` | `val →` | 弹出栈顶，写入 `variables[I]` |
-| `LOOP_JUMP` | 3 | 3 | `[+1] VAR_INDEX: int` `[+2] JUMP_TO: int` | — | 循环控制（详见下方） |
-| `LOOP_CHECK` | 4 | 2 | `[+1] CHECK_TYPE: int` | `val →` 或 `v1,v2 →` | 循环校验/栈清理 |
-| `DIRECT_JUMP` | 5 | 2 | `[+1] JUMP_TO: int` | — | 无条件跳转 `pc = JUMP_TO` |
-| `FALSE_JUMP` | 6 | 2 | `[+1] JUMP_TO: int` | `val →` | 弹出栈顶，若为假则 `pc = JUMP_TO`，否则 `pc += 2` |
-| `TRUE_JUMP` | 7 | 2 | `[+1] JUMP_TO: int` | `val →` | 弹出栈顶，若为真则 `pc = JUMP_TO`，否则 `pc += 2` |
-| `HANDLE_COMPUTE` | 8 | 3 | `[+1] POP_LEN: int` `[+2] SUB_TYPE: int` | `v1...vN → result` | N 元算术运算（详见下方） |
-| `HANDLE_COMPARE` | 9 | 2 | `[+1] SUB_TYPE: int` | `a, b → bool` | 二元比较（弹出 `b`，再弹出 `a`，计算 `a OP b`） |
-| `HANDLE_LOGIC_ANDOR` | 10 | 2 | `[+1] SUB_TYPE: int` | `a, b → bool, bool` | 逻辑与/或（弹出 `b`、`a`，计算 `a OP b`，**结果压入两次**） |
-| `HANDLE_LOGIC_INNOT` | 11 | 2 | `[+1] SUB_TYPE: int` | `a → bool` 或 `a,b → bool` | `not`：弹出 1 个；`in`：弹出 2 个（先 `b` 后 `a`，检查 `a in b`） |
-| `HANDLE_CAST` | 12 | 2 | `[+1] SUB_TYPE: int` | `val → cast(val)` | 弹出栈顶，强制类型转换后压回 |
-| `HANDLE_FUNC` | 13 | 3 | `[+1] POP_LEN: int` `[+2] FUNC_NAME: str` | `args... → result` | 调用内建函数。`FUNC_NAME` 是字符串（如 `"math.sqrt"`）。`POP_LEN` 为参数个数（0 表示无参） |
-| `HANDLE_INTERACT` | 14 | 2 或 3 | `[+1] SUB_TYPE: int` `[+2] REF_TYPE: int`（仅 `SUB_TYPE=3` 时） | `args... → result` | 游戏交互。`SUB_TYPE=0`：command（1 参数）；`SUB_TYPE=1`：score（2 参数）；`SUB_TYPE=2`：selector（1 参数）；`SUB_TYPE=3`：ref（1 参数 + REF_TYPE）。参数按顺序从栈弹出 |
-| `STORE_RETURN_VAL` | 15 | 1 | 无 | `val →` | 弹出栈顶存入 `result` 寄存器，**不压回** |
-| `PROGRAM_STOP_RUN` | 16 | 1 | 无 | — | 终止虚拟机执行循环 |
-| `INTERNAL_PANIC` | 17 | 2 | `[+1] ERROR: str` | — | 抛出包含 `ERROR` 消息的运行时异常 |
-
-**编码示例**：`LOAD_CONST 42` → `[0, 42]`；`LOOP_JUMP 0 15` → `[3, 0, 15]`；`HANDLE_FUNC 1 "math.sqrt"` → `[13, 1, "math.sqrt"]`。
-
-**算术子类型**：
-
-| 值 | 含义 |
-|----|------|
-| 0 | `COMPUTE_TYPE_ADD`（+） |
-| 1 | `COMPUTE_TYPE_REMOVE`（-） |
-| 2 | `COMPUTE_TYPE_TIMES`（*） |
-| 3 | `COMPUTE_TYPE_DIVIDE`（/） |
-
-**比较子类型**：
-
-| 值 | 含义 |
-|----|------|
-| 0 | `COMPARE_TYPE_EQUAL`（==） |
-| 1 | `COMPARE_TYPE_NOT_EQUAL`（!=） |
-| 2 | `COMPARE_TYPE_LESS_THAN`（<） |
-| 3 | `COMPARE_TYPE_GREATER_THAN`（>） |
-| 4 | `COMPARE_TYPE_LESS_EQUAL`（<=） |
-| 5 | `COMPARE_TYPE_GREATER_EQUAL`（>=） |
-
-> **注意**：由于栈操作顺序（右操作数先弹出），`COMPARE_TYPE_LESS_THAN`（<）在实现中编为 `_push(_pop() > _pop())`，而 `COMPARE_TYPE_GREATER_THAN`（>）编为 `_push(_pop() < _pop())`——即比较子类型与对应的 Python 比较方向相反。这是内部实现细节，不影响用户层面的正确性。
-
-**游戏交互子类型**：
-
-| 值 | 含义 |
-|----|------|
-| 0 | `INTERACT_TYPE_COMMAND` |
-| 1 | `INTERACT_TYPE_SCORE` |
-| 2 | `INTERACT_TYPE_SELECTOR` |
-| 3 | `INTERACT_TYPE_REF`（附带 `REF_TYPE`） |
-
-### 4.5 代码生成
-
-由 `CodeCompiler` 类实现，将 AST 编译为线性字节码。
+执行流程：
+1. 从 `pc` 处读取指令
+2. 根据操作码执行相应操作（栈操作、跳转、调用函数等）
+3. 更新 `pc`
+4. 重复直到遇到 `PROGRAM_STOP_RUN` 指令或异常
+5. 返回 `result` 寄存器中的值
 
 **表达式编译**：递归遍历 `ExpressionElement` 树。多操作数运算（如 `a+b+c+d`）先依次将所有操作数压栈，再执行一条 `HANDLE_COMPUTE` 指令。
 
@@ -3705,92 +3468,71 @@ shared_data = {func, maps.new()}
 - `delay < 0`：`GameTickTimer.schedule` 抛出 `Can not schedule a delay in the past`
 - `delay == 0`：回调函数在当前刻**立即同步执行**（非延迟）
 
-> **⚠️ 重要警告**：回调函数中抛出的**所有异常都会被静默丢弃**，不会产生任何错误信息。这意味着：
-> - 变量未赋值错误不会报告
-> - 类型错误不会报告  
-> - 函数不存在不会报告
-> - 任何运行时错误都会导致回调"静默失败"
->
-> **强烈建议**：
-> 1. 先在同步代码中测试函数逻辑
-> 2. 使用 `delay=0` 进行同步测试（此时异常会正常抛出）
-> 3. 在异步函数内部添加显式的错误检查和日志输出
-> 4. 参考 [3.8 错误处理](#38-错误处理) 中的异步调试建议
+> 注意：
+> - 回调函数中抛出的所有异常都会被静默丢弃，不会产生任何错误信息
+> - 强烈建议先在同步代码中测试函数逻辑
+> - 使用 `delay=0` 进行同步测试（此时异常会正常抛出）
+> - 在异步函数内部添加显式的错误检查和日志输出
+> - 参考 [3.8 错误处理](#38-错误处理) 中的异步调试建议
 
-**注意**：
+注意：
 - `*args` 为可变参数，传给自定义函数的参数列表
 - 函数执行时上下文会临时切换到原执行者，执行完毕后恢复
-- `GameTickTimer` 在每个游戏刻 (`OnSimTickServerEvent`) 消费到期的回调
 
 #### `utils.async_run_cmd(delay: int, command: str) → bool`
 
 别名：`gocmd`
 
+延迟执行游戏命令。
+
 **执行过程**：
 1. 保存当前命令执行上下文（执行者 ID）
-2. 构造回调函数：恢复保存的上下文 → 通过 `command.fast_set` 设置执行者 → 调用游戏交互接口执行 `command` → 恢复原上下文
-3. 将回调函数提交到 `GameTickTimer`，安排在 `delay` 个游戏刻后执行
+2. 构造回调函数：恢复保存的上下文，执行 `command`，恢复原上下文
+3. 将回调函数提交到游戏刻定时器，安排在 `delay` 个游戏刻后执行
 4. 返回 `True`
 
 **异常**：同 `async_run_func`。`delay < 0` 时抛异常；`delay == 0` 时立即同步执行。
 
-> **⚠️ 重要警告**：与 `async_run_func` 相同，回调中的异常会被静默丢弃。参考 [3.8 错误处理](#38-错误处理) 中的异步调试建议。
-
-**注意**：与 `{command, ...}` 语句不同，此函数延迟执行的命令在回调时上下文已恢复到调用时的状态，且命令执行结果（成功次数）被忽略。
-
-#### GameTickTimer 内部机制
-
-```
-schedule(ticks, callback):
-  if ticks < 0: raise Exception
-  if ticks == 0: callback(); return
-  将 (current_base + ticks, seq, callback) 推入最小堆
-
-on_tick:
-  current_base += 1
-  消费所有 heap[0][0] <= current_base 的回调
-```
-
-> **运行时异常捕获**：`utils.async_run_func` 和 `utils.async_run_cmd` 的回调函数执行时，若内部抛出异常，异常会被 `GameTickTimer._consume` 中的 `try/except Exception: pass` **静默捕获并丢弃**。这意味着延迟执行的函数或命令中的运行时错误**不会**导致程序终止或产生可见的错误信息。
+> 注意：与 `async_run_func` 相同，回调中的异常会被静默丢弃。参考 [3.8 错误处理](#38-错误处理) 中的异步调试建议。
 
 ### 5.26 编译缓存 (`compile.*`)
 
-由 `CompileCache` 提供的编译器级函数，用于管理代码编译缓存。
+编译器级函数，用于管理代码编译缓存。
 
 #### `compile.get_max_cache_size() → int`
 
-**执行过程**：返回编译缓存的最大容量（已编译代码的运行器实例数上限）。默认值为 `2048`。
-
-**异常**：不抛出异常。
+返回编译缓存的最大容量（已编译代码的运行器实例数上限）。默认值为 `2048`。
 
 #### `compile.get_current_cache_size() → int`
 
-**执行过程**：返回编译缓存中当前已缓存的代码运行器实例数。
-
-**异常**：不抛出异常。
+返回编译缓存中当前已缓存的代码运行器实例数。
 
 #### `compile.set_max_cache_size(size: int) → bool`
 
+设置缓存最大容量。
+
 **执行过程**：
-1. 校验 `size` 是否为非布尔值的 `int` 且为非负数：若不是，抛出相应错误
+1. 校验 `size` 是否为非布尔值的整数且为非负数
 2. 更新缓存最大容量并持久化到模组存储中
-3. 若新容量小于当前已缓存数量，触发垃圾回收（按时间顺序移除早期缓存）
+3. 若新容量小于当前已缓存数量，触发垃圾回收
 4. 返回 `True`
 
 **异常**：
-- `The given size must be int` — `size` 不是整数（含 `bool`）
+- `The given size must be int` — `size` 不是整数（含布尔值）
 - `The given size must be non-negative integer` — `size` 为负数
 
 #### `compile.register_cache(code: str) → bool`
 
+预编译并注册代码到缓存中。
+
 **执行过程**：
-1. 编译给定的 `code`（如有必要——若命中缓存则跳过编译）
+1. 编译给定的 `code`（若已缓存则跳过编译）
 2. 将编译结果注册到缓存中
 3. 返回 `True`
 
 **异常**：`code` 编译失败时抛出对应语法/编译错误。
 
-**用途**：通常用于模组加载阶段预编译所有表单代码、自定义函数代码和事件监听器代码，以避免首次运行时因编译造成卡顿。
+**用途**：用于模组加载阶段预编译所有表单代码、自定义函数代码和事件监听器代码，以避免首次运行时因编译造成卡顿。
 
 ---
 
@@ -3815,8 +3557,6 @@ on_tick:
 
 ### 6.2 字节码指令速查表
 
-> 完整指令集（含操作数、子类型枚举、栈变化）见 [4.4 字节码指令集](#44-字节码指令集)。
-
 | 操作码 | 值 | 操作数 | 栈变化 | 说明 |
 |--------|---|--------|--------|------|
 | `LOAD_CONST` | 0 | `C: const` | `→ val` | 将常量 C 压入栈顶 |
@@ -3840,7 +3580,7 @@ on_tick:
 
 ---
 
-> **文档版本**: 1.2
+> **文档版本**: 1.3
 > **生成日期**: 2026-08-09
 > **最后修订**: 2026-08-12
 > **基于代码版本**: 0.0.3 (commit `efa3add`)
