@@ -1,0 +1,2940 @@
+# NEMC Form Script 语言规范
+
+> **版本**: 0.0.3
+> **适用对象**: 网易 Minecraft 基岩版模组（NEMC Form Script）
+> **用途**: 自定义表单编程、命令执行、服务器事件处理
+
+---
+
+## 目录
+
+1. [概述](#1-概述)
+2. [词法](#2-词法)
+   - [2.1 字符集与编码](#21-字符集与编码)
+   - [2.2 空白字符](#22-空白字符)
+   - [2.3 行分隔符](#23-行分隔符)
+   - [2.4 注释](#24-注释)
+   - [2.5 关键字](#25-关键字)
+   - [2.6 标识符](#26-标识符)
+   - [2.7 字面量](#27-字面量)
+   - [2.8 运算符与分隔符](#28-运算符与分隔符)
+   - [2.9 Token 完整列表](#29-token-完整列表)
+3. [语法与求值](#3-语法与求值)
+   - [3.1 程序结构](#31-程序结构)
+   - [3.2 表达式](#32-表达式)
+     - [3.2.1 表达式元素层级](#321-表达式元素层级)
+     - [3.2.2 原子表达式](#322-原子表达式)
+     - [3.2.3 算术运算](#323-算术运算)
+     - [3.2.4 比较运算](#324-比较运算)
+     - [3.2.5 逻辑运算](#325-逻辑运算)
+     - [3.2.6 花括号语句求值过程](#326-花括号语句求值过程)
+     - [3.2.7 表达式求值过程](#327-表达式求值过程)
+     - [3.2.8 解析上下文](#328-解析上下文)
+   - [3.3 语句](#33-语句)
+     - [3.3.1 赋值语句](#331-赋值语句)
+     - [3.3.2 表达式语句](#332-表达式语句)
+     - [3.3.3 条件语句](#333-条件语句)
+     - [3.3.4 循环语句](#334-循环语句)
+     - [3.3.5 返回语句](#335-返回语句)
+   - [3.4 抽象语法树](#34-抽象语法树)
+   - [3.5 类型系统与类型转换](#35-类型系统与类型转换)
+   - [3.6 短路求值](#36-短路求值)
+   - [3.7 变量映射与作用域](#37-变量映射与作用域)
+   - [3.8 错误处理](#38-错误处理)
+4. [编译与虚拟机实现](#4-编译与虚拟机实现)
+   - [4.1 编译流水线概览](#41-编译流水线概览)
+   - [4.2 词法分析实现](#42-词法分析实现)
+   - [4.3 语法分析实现](#43-语法分析实现)
+   - [4.4 字节码指令集](#44-字节码指令集)
+   - [4.5 代码生成](#45-代码生成)
+   - [4.6 虚拟机执行](#46-虚拟机执行)
+5. [内建库函数](#5-内建库函数)
+   - [5.1 对象管理 (`object.*`)](#51-对象管理-object)
+   - [5.2 反射 (`reflect.*`)](#52-反射-reflect)
+   - [5.3 切片 (`slices.*`)](#53-切片-slices)
+   - [5.4 映射 (`maps.*`)](#54-映射-maps)
+   - [5.5 元组 (`tuple.*`)](#55-元组-tuple)
+   - [5.6 集合 (`set.*`)](#56-集合-set)
+   - [5.7 字符串 (`strings.*`)](#57-字符串-strings)
+   - [5.8 UUID (`uuid.*`)](#58-uuid-uuid)
+   - [5.9 时间 (`time.*`)](#59-时间-time)
+   - [5.10 结构化时间 (`struct_time.*`)](#510-结构化时间-struct_time)
+   - [5.11 数学 (`math.*`)](#511-数学-math)
+   - [5.12 随机数 (`random.*`)](#512-随机数-random)
+   - [5.13 JSON (`json.*`)](#513-json-json)
+   - [5.14 二进制 ASCII (`binascii.*`)](#514-二进制-ascii-binascii)
+   - [5.15 日期时间 (`datetime_*.*`)](#515-日期时间-datetime_)
+   - [5.16 Base64 (`base64.*`)](#516-base64-base64)
+   - [5.17 通用时间 (`common_time.*`)](#517-通用时间-common_time)
+   - [5.18 命令执行上下文 (`command.*`)](#518-命令执行上下文-command)
+   - [5.19 通用系统 (`general.*`)](#519-通用系统-general)
+   - [5.20 世界 (`world.*`)](#520-世界-world)
+   - [5.21 实体 (`entity.*`)](#521-实体-entity)
+   - [5.22 玩家 (`player.*`)](#522-玩家-player)
+   - [5.23 方块 (`block.*`)](#523-方块-block)
+   - [5.24 物品 (`item.*`)](#524-物品-item)
+   - [5.25 杂项工具 (`utils.*`)](#525-杂项工具-utils)
+6. [附录](#6-附录)
+   - [6.1 运算符优先级总表](#61-运算符优先级总表)
+   - [6.2 完整字节码指令集](#62-完整字节码指令集)
+
+---
+
+## 1. 概述
+
+NEMC Form Script 是一门嵌入在网易 Minecraft 基岩版（NEMC）中的动态类型脚本语言，运行于服务端模组 `nemc-form-script` 之上。该语言设计用于：
+
+- 动态生成自定义表单（长表单、信息表单、模态表单）的内容
+- 在命令执行上下文中执行 Minecraft 命令
+- 查询记分板分数、解析目标选择器
+- 通过自定义函数复用代码
+- 监听和处理服务器事件
+
+语言风格上借鉴了 Python 的缩进语法（使用 `if/fi` 和 `for/rof` 作为块定界符），数据类型系统参考了 Python 的基本类型。
+
+### 核心设计约束
+
+- 所有代码**逐行编写**，使用换行符或 `|` 符号分隔语句
+- 语言**不支持注释**
+- 变量名不能与关键字重名，不能以数字开头
+- 表达式求值结果必须是四种基础类型之一：`int`、`bool`、`float`、`str`
+- 语言通过 `{...}` 花括号语法与 Minecraft 游戏引擎交互
+
+---
+
+## 2. 词法
+
+### 2.1 字符集与编码
+
+源代码使用 **UTF-8** 编码。源代码中的字符串字面量支持 Unicode 转义（`\uXXXX` 形式暂不支持，仅支持对反斜杠后 1 个字符进行转义）。
+
+### 2.2 空白字符
+
+空格（U+0020）和制表符（U+0009，`\t`）被视为空白字符。词法分析阶段，空白字符被用于分隔 Token，本身不产生有意义的 Token。
+
+### 2.3 行分隔符
+
+有两种行分隔符：
+
+| 符号 | 含义 |
+|------|------|
+| `\n` (换行符) | 语句分隔 |
+| `\|` (竖线) | 语句分隔（等价于换行） |
+
+`|` 允许将多条语句写在同一行中，起到等同于换行的作用：
+
+```
+a=0 | b=1 | c=2
+```
+
+等价于：
+
+```
+a=0
+b=1
+c=2
+```
+
+### 2.4 注释
+
+本语言**不支持注释**。源代码中的所有字符都将被解析。
+
+### 2.5 关键字
+
+以下为保留关键字，不可用作变量名：
+
+#### 类型转换关键字
+
+| 关键字 | 含义 |
+|--------|------|
+| `int` | 强制转换为整数 |
+| `bool` | 强制转换为布尔值 |
+| `str` | 强制转换为字符串 |
+| `float` | 强制转换为浮点数 |
+
+#### 花括号语句关键字
+
+| 关键字 | 含义 |
+|--------|------|
+| `ref` | 引用表单响应 |
+| `selector` | 解析目标选择器 |
+| `score` | 获取记分板分数 |
+| `command` | 执行命令 |
+| `func` | 调用内建函数 |
+
+#### 控制流关键字
+
+| 关键字 | 含义 |
+|--------|------|
+| `return` | 返回语句 |
+| `if` | 条件语句起始 |
+| `else` | 否则分支 |
+| `elif` | 否则如果分支 |
+| `fi` | 条件语句结束 |
+| `for` | 循环语句起始 |
+| `continue` | 跳过本次循环剩余代码 |
+| `break` | 终止循环 |
+| `rof` | 循环语句结束 |
+
+#### 逻辑运算关键字
+
+| 关键字 | 含义 |
+|--------|------|
+| `and` | 逻辑与 |
+| `or` | 逻辑或 |
+| `not` | 逻辑取反 |
+| `in` | 成员检查 |
+
+#### 布尔字面量
+
+| 关键字 | 含义 |
+|--------|------|
+| `True` | 布尔真 |
+| `False` | 布尔假 |
+
+### 2.6 标识符
+
+标识符（变量名）规则：
+
+1. 只能包含字母、数字和下划线 `_`
+2. **不能**以数字开头
+3. **不能**包含引号（`'` 或 `"`）
+4. **不能**包含点号（`.`）
+5. **不能**是关键字
+
+合法示例：`command_a`、`True_False`、`ref_0`、`_`
+
+非法示例：`233gk5`（以数字开头）、`wo_de_!jie`（含标点）、`command`（关键字）、`True`（关键字）
+
+### 2.7 字面量
+
+#### 整数字面量
+
+不包含小数点的数字串。范围：`[-2³¹, 2³¹-1]` 即 `[-2147483648, 2147483647]`。
+
+```
+1
+-5
+233
+0
+```
+
+#### 浮点数字面量
+
+包含小数点的数字串。注意：`1.0` 等的写法也有效，但小数点后必须有至少一个数字。
+
+```
+3.14
+-2.5
+1.0
+0.0
+```
+
+#### 字符串字面量
+
+由单引号 `'` 包裹的字符序列。支持的转义符：
+
+| 转义序列 | 结果 |
+|----------|------|
+| `\n` | 换行 |
+| `\\` | 反斜杠 `\` |
+| `\'` | 单引号 `'` |
+| `\"` | 双引号 `"` |
+
+```
+'hello'
+'你好，世界'
+'包含\'引号\'的字符串'
+'换行\n第二行'
+```
+
+#### 布尔字面量
+
+`True` 和 `False`（注意首字母大写）。
+
+### 2.8 运算符与分隔符
+
+| 符号 | Token 类型 | 含义 |
+|------|-----------|------|
+| `=` | `TOKEN_ID_ASSIGN` | 赋值 |
+| `==` | `ELEMENT_ID_EQUAL` | 相等比较 |
+| `!=` | `ELEMENT_ID_NOT_EQUAL` | 不等比较 |
+| `<` | `ELEMENT_ID_LESS_THAN` | 小于 |
+| `>` | `ELEMENT_ID_GREATER_THAN` | 大于 |
+| `<=` | `ELEMENT_ID_LESS_EQUAL` | 小于等于 |
+| `>=` | `ELEMENT_ID_GREATER_EQUAL` | 大于等于 |
+| `+` | `ELEMENT_ID_ADD` | 加法/拼接 |
+| `-` | `ELEMENT_ID_REMOVE` | 减法 |
+| `*` | `ELEMENT_ID_TIMES` | 乘法/重复 |
+| `/` | `ELEMENT_ID_DIVIDE` | 除法 |
+| `{` | `TOKEN_ID_LEFT_BARRIER` | 花括号语句起始 |
+| `}` | `TOKEN_ID_RIGHT_BARRIER` | 花括号语句结束 |
+| `(` | `TOKEN_ID_LEFT_BRACKET` | 圆括号（分组/调用） |
+| `)` | `TOKEN_ID_RIGHT_BRACKET` | 圆括号结束 |
+| `,` | `TOKEN_ID_COMMA` | 逗号分隔 |
+| `:` | `TOKEN_ID_COLON` | 冒号（条件/循环声明） |
+| `!` | `TOKEN_ID_EXCLAMATION` | 感叹号（不等运算符的一部分） |
+
+### 2.9 Token 完整列表
+
+词法分析器共定义 41 种 Token：
+
+| Token ID | 名称 | 说明 |
+|----------|------|------|
+| 0 | `TOKEN_ID_WORD` | 标识符/数字面量 |
+| 1 | `TOKEN_ID_ASSIGN` | `=` |
+| 2 | `TOKEN_ID_LEFT_ANGLE_BRACKET` | `<` |
+| 3 | `TOKEN_ID_RIGHT_ANGLE_BRACKET` | `>` |
+| 4 | `TOKEN_ID_LEFT_BARRIER` | `{` |
+| 5 | `TOKEN_ID_RIGHT_BARRIER` | `}` |
+| 6 | `TOKEN_ID_COLON` | `:` |
+| 7 | `TOKEN_ID_PLUS` | `+` |
+| 8 | `TOKEN_ID_MINUS` | `-` |
+| 9 | `TOKEN_ID_ASTERISK` | `*` |
+| 10 | `TOKEN_ID_SLASH` | `/` |
+| 11 | `TOKEN_ID_SINGLE_QUOTE` | `'...'`（字符串） |
+| 12 | `TOKEN_ID_LEFT_BRACKET` | `(` |
+| 13 | `TOKEN_ID_RIGHT_BRACKET` | `)` |
+| 14 | `TOKEN_ID_COMMA` | `,` |
+| 15 | `TOKEN_ID_EXCLAMATION` | `!` |
+| 16 | `TOKEN_ID_SEPSEPARATE` | `\n` 或 `\|` |
+| 17–40 | 关键字 Token | 见 [2.5 关键字](#25-关键字) |
+
+---
+
+## 3. 语法与求值
+
+### 3.1 程序结构
+
+一个程序由零条或多条**语句**组成。每条语句独占一行（或用 `|` 分隔）。
+
+```
+程序 ::= { 语句 }
+```
+
+语句的类型：
+
+```
+语句 ::= 赋值语句
+       | 条件语句
+       | 循环语句
+       | 返回语句
+       | continue 语句
+       | break 语句
+       | 表达式语句
+```
+
+### 3.2 表达式
+
+#### 3.2.1 表达式元素层级
+
+语法分析器将表达式解析为嵌套的 ExpressionElement 树。元素的优先级（从低到高）：
+
+1. **逻辑或** (`or`)
+2. **逻辑与** (`and`)
+3. **逻辑取反** (`not`)
+4. **成员检查** (`in`)
+5. **比较运算** (`==`, `!=`, `<`, `>`, `<=`, `>=`)
+6. **加减法** (`+`, `-`)
+7. **乘除法** (`*`, `/`)
+8. **一元运算**（负号、`not`）
+9. **原子表达式**（字面量、变量、括号、花括号语句、类型转换）
+
+#### 3.2.2 原子表达式
+
+```
+原子表达式 ::= 整数字面量
+            | 浮点数字面量
+            | 字符串字面量
+            | 布尔字面量
+            | 变量名
+            | "(" 表达式 ")"
+            | 强制类型转换
+            | 花括号语句
+```
+
+**强制类型转换**：
+
+```
+强制类型转换 ::= "int" "(" 表达式 ")"
+              | "bool" "(" 表达式 ")"
+              | "float" "(" 表达式 ")"
+              | "str" "(" 表达式 ")"
+```
+
+**花括号语句**：
+
+```
+花括号语句 ::= "{" ( ref语句 | selector语句 | score语句 | command语句 | func语句 ) "}"
+
+ref语句      ::= "ref" "," 类型关键字 "," 表达式
+selector语句 ::= "selector" "," 表达式
+score语句    ::= "score" "," 表达式 "," 表达式
+command语句  ::= "command" "," 表达式
+func语句     ::= "func" "," ( 类型关键字 | 标识符 ) "(" [ 表达式 { "," 表达式 } ] ")"
+```
+
+其中 `类型关键字` 为 `int`、`bool`、`float`、`str` 之一。
+
+#### 3.2.3 算术运算
+
+```
+算术表达式 ::= 原子表达式 { 算术运算符 原子表达式 }
+算术运算符 ::= "+" | "-" | "*" | "/"
+```
+
+- `+`：加法（数字）或字符串拼接
+- `-`：减法
+- `*`：乘法（数字）或字符串重复
+- `/`：除法（结果恒为浮点数）
+
+运算符为**左结合**。优先级：`*` `/` > `+` `-`。
+
+正负号处理：当 `+` 或 `-` 出现在表达式开头或紧跟运算符时，编译器会自动补 `0` 作为左操作数：
+
+- `-5` → `0 - 5`
+- `+3` → `0 + 3`
+
+#### 3.2.4 比较运算
+
+```
+比较表达式 ::= 算术表达式 { 比较运算符 算术表达式 }
+比较运算符 ::= "==" | "!=" | "<" | ">" | "<=" | ">=" | "in"
+```
+
+- 比较运算的结果恒为布尔值
+- 比较运算**不可连用**：`1 < 10 < 100` 是非法的，必须写为 `1 < 10 and 10 < 100`
+- `in` 用于字符串包含检查：`'ab' in 'abc'` → `True`
+- 字符串比较按字典序逐个字符进行
+
+#### 3.2.5 逻辑运算
+
+```
+逻辑表达式 ::= 比较表达式 { 逻辑运算符 比较表达式 }
+逻辑运算符 ::= "and" | "or" | "not"
+```
+
+优先级：`not` > `and` > `or`。
+
+- `and`：所有操作数均为真时为真，支持**短路求值**
+- `or`：任一操作数为真时为真，支持**短路求值**
+- `not`：一元取反，`not True` → `False`
+
+#### 3.2.6 花括号语句求值过程
+
+花括号语句 `{...}` 是语言与 Minecraft 游戏引擎交互的核心机制。以下逐一说明每种花括号语句的运行时求值过程。
+
+**`{selector, <target>}`**
+
+1. 对 `<target>` 表达式求值，得到目标选择器字符串（如 `@p`、`@a[r=10]`、`Alex`）
+2. 调用游戏引擎的目标选择器解析接口，以当前命令执行者的位置为参考点
+3. 将所有匹配到的实体名以 `, ` 分隔拼接为一个字符串并返回
+4. 若无匹配实体，返回空字符串 `""`
+
+```
+{selector, '@p'}                    → "Steve"
+{selector, '@e[type=zombie]'}       → "ZombieA, ZombieB"
+{selector, '@e[name="notexist"]'}   → ""
+```
+
+**`{score, <target>, <scoreboard>}`**
+
+1. 对 `<target>` 表达式求值，得到目标选择器字符串
+2. 对 `<scoreboard>` 表达式求值，得到记分板名称
+3. 调用游戏引擎的记分板查询接口（以当前命令执行者的位置为参考点）
+4. 若目标非玩家/不存在/不在该记分板上，返回 `0`
+5. 若目标匹配多个玩家，返回这些玩家在该记分板上分数的**总和**
+6. 返回值恒为整数
+
+```
+{score, '@s', 'coin'}              → 100
+{score, '*', 'coin'}               → 0（通配符，等同于 @s）
+{score, '@a[r=10]', 'abc'}         → 所有匹配玩家在 abc 上的分数和
+```
+
+**`{command, <commandLine>}`**
+
+1. 对 `<commandLine>` 表达式求值，得到命令字符串
+2. 在当前命令执行上下文（执行者、位置、维度）中执行该命令
+3. 返回命令的成功次数（受网易接口限制，只可能为 `0` 或 `1`）
+4. 命令执行者必须是实体；执行点和朝向沿用执行者的位置
+
+```
+{command, 'say hello'}             → 1（命令执行成功）
+{command, 'say ' + 'hello'}        → 1（先拼接再执行）
+```
+
+**`{ref, <type>, <index>}`**
+
+1. 对 `<index>` 表达式求值，得到一个整数
+2. 调用表单响应引用接口，获取对应索引上的用户响应值
+3. 对返回值进行类型断言：必须与 `<type>` 声明的类型一致，否则抛出运行时错误
+4. 返回断言通过的值
+
+对于**模态表单**，`index >= 0` 时直接返回响应列表中第 `index` 个元素的值。对于**长表单**和**信息表单**：
+- `index == -1`：直接返回原始响应值（长表单返回点击的按钮索引，信息表单返回 `True`/`False`，关闭原因返回整数）
+- `index >= 0`：返回 `index == 原始值` 的布尔结果
+
+```
+{ref, int, 3}     → 返回模态表单第 4 个元素的响应（断言为 int）
+{ref, bool, -1}   → 返回信息表单的原始布尔响应
+{ref, int, -1}    → 返回表单关闭原因的整数值
+```
+
+**`{func, <name>(<arg1>, <arg2>, ...)}`**
+
+1. 按顺序对每个参数表达式 `<arg1>`, `<arg2>`, ... 求值
+2. 根据 `<name>` 在内建函数注册表中查找对应函数
+3. 将所有求值后的参数传入该函数并调用
+4. 校验返回值：必须是四种基础类型之一（`int`/`bool`/`float`/`str`），否则抛出错误
+5. 返回该值
+
+```
+{func, math.sqrt(4)}               → 2.0
+{func, math.pow(2, 3)}             → 8.0
+{func, strings.length('hello')}    → 5
+```
+
+#### 3.2.7 表达式求值过程
+
+表达式的求值是在运行时通过栈式虚拟机完成的。以下以用户可见的语义层面详述求值过程。
+
+##### 原子表达式求值
+
+| 表达式类型 | 求值过程 |
+|-----------|---------|
+| 整数字面量 `233` | 直接产生整数值 `233` |
+| 浮点数字面量 `3.14` | 直接产生浮点值 `3.14` |
+| 字符串字面量 `'hello'` | 经转义处理后产生字符串 `hello` |
+| 布尔字面量 `True` / `False` | 直接产生布尔值 |
+| 变量名 `x` | 在变量表中查找 `x` 的当前值；若从未赋值则抛出 `Variable used before assignment` |
+| `(表达式)` | 对括号内表达式求值，结果作为原子值 |
+| `int(expr)` | 对 `expr` 求值，将结果转换为整数（截断小数；字符串须为合法整数） |
+| `bool(expr)` | 对 `expr` 求值，将结果转换为布尔值（仅 `0`/`0.0`/`False` 为假） |
+| `float(expr)` | 对 `expr` 求值，将结果转换为浮点数 |
+| `str(expr)` | 对 `expr` 求值，将结果转换为字符串 |
+
+##### 算术表达式求值
+
+算术运算遵循标准四则运算语义。求值时，**按左结合顺序**依次对每个操作数递归求值，然后执行运算：
+
+**加法 `+`**：
+- 若所有操作数均为 `int`，结果为 `int`；若有任一 `float`，结果为 `float`
+- 若操作数为字符串，执行**字符串拼接**：`'a' + 'b' + 'c'` → `'abc'`
+- **类型混用将报错**：`'hello' + 5` 会抛出运行时错误
+
+**减法 `-`**：
+- 若所有操作数均为 `int`，结果为 `int`；若有任一 `float`，结果为 `float`
+- 正负号自动补零：`-5` 等价于 `0 - 5`，`+3` 等价于 `0 + 3`
+
+**乘法 `*`**：
+- 数字乘法同上（int/float 规则）
+- 字符串重复：`'ak' * 5` → `'akakakakak'`（字符串重复整数次）
+
+**除法 `/`**：
+- 结果**恒为浮点数**（Python `/` 语义）
+- `10 / 4` → `2.5`，`6 / 3` → `2.0`
+
+##### 比较表达式求值
+
+比较运算每次涉及两个操作数。求值时先对左右操作数分别递归求值，然后比较：
+
+| 运算符 | 求值规则 |
+|--------|---------|
+| `==` | 值相等为 `True`。`1 == 1` → `True`，`'a' == 'b'` → `False` |
+| `!=` | 值不等为 `True`。`2 != 3` → `True` |
+| `<` `>` `<=` `>=` | 按数值大小或字典序比较。`3 < 5` → `True`，`'a' < 'b'` → `True` |
+| `in` | 子串检查。`'ab' in 'abc'` → `True`，`'x' in 'abc'` → `False` |
+
+**不可连用**：`1 < 10 < 100` 是非法的，必须写为 `1 < 10 and 10 < 100`。
+
+**跨类型比较将报错**：整数与字符串不可比较，`10 <= 'hello'` 会抛出运行时错误。
+
+##### 逻辑表达式求值
+
+逻辑运算采用**短路求值**策略：
+
+**`and` 求值过程**：
+
+```
+对 A and B and C:
+  求值 A → 若 A 为假，立即返回假（B、C 不需求值）
+         → 若 A 为真，求值 B → 若 B 为假，立即返回假（C 不需求值）
+                           → 若 B 为真，求值 C → 返回 C 的布尔值
+```
+
+**`or` 求值过程**：
+
+```
+对 A or B or C:
+  求值 A → 若 A 为真，立即返回真（B、C 不需求值）
+         → 若 A 为假，求值 B → 若 B 为真，立即返回真（C 不需求值）
+                           → 若 B 为假，求值 C → 返回 C 的布尔值
+```
+
+短路求值的效果：`1+1==0 and 0/0==0` 不会触发除零错误，因为 `1+1==0` 为 `False` 后立即短路。
+
+**`not` 求值过程**：
+
+```
+对 not A:
+  求值 A → 若 A 为真返回 False，若 A 为假返回 True
+```
+
+##### 完整表达式求值示例
+
+以下通过逐步演算展示复杂表达式的求值过程：
+
+**示例 1**：`1 + 2 * 3 - 4 / 2`
+
+```
+解析树: Remove(Add(1, Times(2, 3)), Divide(4, 2))
+
+步骤:
+  求值 Times(2, 3):
+    求值 2 → 2 (int)
+    求值 3 → 3 (int)
+    2 * 3 → 6 (int)
+  求值 Add(1, 6):
+    求值 1 → 1 (int)
+    1 + 6 → 7 (int)
+  求值 Divide(4, 2):
+    求值 4 → 4 (int)
+    求值 2 → 2 (int)
+    4 / 2 → 2.0 (float, 除法恒得浮点)
+  求值 Remove(7, 2.0):
+    7 - 2.0 → 5.0 (float)
+
+结果: 5.0 (float)
+```
+
+**示例 2**：`1+1==2 or 0/0==0`
+
+```
+解析树: Or(Equal(Add(1, 1), 2), Equal(Divide(0, 0), 0))
+
+步骤:
+  求值 Equal(Add(1, 1), 2):
+    求值 Add(1, 1) → 2
+    求值 2 → 2
+    2 == 2 → True
+  短路: Or 运算左侧为 True，右侧 Equal(Divide(0, 0), 0) 不再求值
+
+结果: True (0/0 从未被执行)
+```
+
+**示例 3**：`'玩家: ' + {selector, '@s'} + ' 分数: ' + str({score, '@s', 'coin'})`
+
+```
+步骤:
+  求值 '玩家: ' → '玩家: '
+  求值 {selector, '@s'} → 解析 @s 得到实体名，假设为 'Steve'
+  求值 '玩家: ' + 'Steve' → '玩家: Steve'
+  求值 ' 分数: ' → ' 分数: '
+  求值 '玩家: Steve' + ' 分数: ' → '玩家: Steve 分数: '
+  求值 str({score, '@s', 'coin'}):
+    求值 {score, '@s', 'coin'} → 查询 @s 在 coin 的分数，假设为 9931
+    str(9931) → '9931'
+  求值 '玩家: Steve 分数: ' + '9931' → '玩家: Steve 分数: 9931'
+
+结果: '玩家: Steve 分数: 9931'
+```
+
+#### 3.2.8 解析上下文
+
+表达式解析器根据所处位置使用不同的上下文位掩码（Context Bitmask）：
+
+| 上下文 | 掩码 | 允许的终止符 |
+|--------|------|-------------|
+| `CONTEXT_PARSE_ASSIGN` | `1 << 0` | `\n`, `\|` |
+| `CONTEXT_PARSE_IF` | `1 << 1` | `\n`, `\|`, `:` |
+| `CONTEXT_PARSE_FOR` | `1 << 2` | `\n`, `\|`, `:` |
+| `CONTEXT_PARSE_ARGUMENT` | `1 << 3` | `,`, `)` |
+| `CONTEXT_PARSE_SUB_EXPR` | `1 << 4` | `)` |
+| `CONTEXT_PARSE_BARRIER` | `1 << 5` | `}` |
+
+表达式解析完成后，通过 `compact_operator` 方法进行**运算符紧缩**，将连续的平级运算符折叠到单个表达式元素中：
+
+```
+[6, *, 8, /, 2, /, 4, *, 2, *, 3]
+→ [Times(6, Divide(8, 2, 4), 2, 3)]
+```
+
+紧缩顺序严格按照优先级从高到低进行：`/` → `*` → `-` → `+` → 比较运算 → `in` → `not` → `and` → `or`。最终 `element_payload` 长度为 1。
+
+### 3.3 语句
+
+#### 3.3.1 赋值语句
+
+```
+赋值语句 ::= 标识符 "=" 表达式
+```
+
+**语法**：等号左侧为变量名，右侧为表达式。变量名在编译时分配索引，运行时通过索引访问变量数组。
+
+**执行过程**：
+
+```
+1. 验证标识符是否为合法变量名（不以数字开头、不含引号/点号、非关键字）
+2. 对右侧表达式求值，得到结果 R
+3. 将 R 写入变量数组中对应索引的位置
+4. 变量现在可以被后续代码引用
+```
+
+变量在使用前必须先被赋值，否则在运行时抛出 `Variable used before assignment` 错误。
+
+**执行示例**：
+
+```
+a = 1
+b = a + 2
+```
+
+```
+步骤:
+  行 1 "a = 1":
+    求值表达式 1 → 1 (int)
+    将 1 绑定到变量 a
+  行 2 "b = a + 2":
+    求值表达式 a + 2:
+      求值 a → 1 (从变量表获取)
+      求值 2 → 2
+      1 + 2 → 3 (int)
+    将 3 绑定到变量 b
+
+结果: a = 1, b = 3
+```
+
+**连续赋值与重复赋值**：变量可以多次赋值，新值覆盖旧值。
+
+```
+a = 1
+a = a + 1
+a = a + 2
+```
+
+```
+步骤:
+  a = 1       → a 为 1
+  a = a + 1   → a 为 2
+  a = a + 2   → a 为 4
+
+结果: a = 4
+```
+
+**类型变化**：变量的类型可随赋值改变，无编译期类型检查。
+
+```
+a = 2333       # a 为 int
+a = a * a / a  # a 变为 float 2333.0
+a = str(a)     # a 变为 str '2333.0'
+```
+
+#### 3.3.2 表达式语句
+
+```
+表达式语句 ::= 表达式
+```
+
+**执行过程**：
+
+```
+1. 对表达式求值，得到结果 R
+2. 将 R 保存到虚拟机的 result 寄存器中（覆盖上一次表达式语句的结果）
+3. 程序继续执行下一条语句
+```
+
+如果在整个程序执行完毕后没有遇到 `return` 语句，则最后一次表达式语句的结果成为程序的最终返回值。
+
+**执行示例**：
+
+```
+a = 0
+2.5
+```
+
+```
+步骤:
+  行 1 "a = 0": 赋值语句执行，a 被设为 0
+  行 2 "2.5":
+    求值 2.5 → 2.5 (float)
+    保存 2.5 到 result 寄存器
+  程序结束，无 return 语句
+
+程序返回值: 2.5 (float)
+```
+
+**与 return 的交互**：
+
+```
+total = 0
+for i, 25:
+    total = total + i
+    if total > 25:
+        return total
+    fi
+rof
+total
+```
+
+```
+执行追踪（部分）:
+  轮次 1-7: total 依次为 0, 1, 3, 6, 10, 15, 21
+  轮次 8: total = 21 + 7 = 28, total > 25 成立，执行 return 28
+  程序立即终止，后续的 total（表达式语句）不会执行
+
+程序返回值: 28
+```
+
+#### 3.3.3 条件语句
+
+```
+条件语句 ::= "if" 表达式 ":" 换行
+                { 语句 }
+            { "elif" 表达式 ":" 换行
+                { 语句 } }
+            [ "else" ":" 换行
+                { 语句 } ]
+            "fi"
+```
+
+**执行过程**：
+
+```
+1. 令 branches = [(条件1, 代码块1), (条件2, 代码块2), ..., (条件N, 代码块N), (None, else代码块)]
+2. 按顺序遍历 branches:
+   a. 若条件为 None（else 分支）：执行其代码块，跳转到步骤 3
+   b. 对条件表达式求值
+   c. 若求值结果为 True：执行该分支的代码块，跳转到步骤 3
+   d. 若求值结果为 False：继续遍历下一个分支
+3. 跳过所有剩余分支，执行 fi 之后的下一条语句
+```
+
+**关键规则**：
+- 每个代码块中的语句逐行执行
+- 只有一个分支的代码块会被执行（最先满足条件的那个）
+- `elif` 不能出现在 `else` 之后（语法错误）
+- 条件表达式求值结果必须是布尔值
+- 条件语句可任意嵌套
+
+**执行示例 1——if-elif-else**：
+
+```
+a = 0
+b = 1
+c = 2
+
+if a == 0:
+    a = a + 20.3
+fi
+
+if b > 0:
+    b = b + 1
+elif b > 0:
+    b = b - 1
+elif b < 0:
+    b = b - 1000
+else:
+    b = 1000
+fi
+
+if c == 0:
+    c = c + 10
+else:
+    c = c - 10
+fi
+```
+
+```
+执行追踪:
+  第一个 if:
+    条件 a == 0 → 0 == 0 → True
+    执行 a = 0 + 20.3 → a = 20.3
+
+  第二个 if:
+    条件 b > 0 → 1 > 0 → True
+    执行 b = 1 + 1 → b = 2
+    （后续 elif/else 被跳过）
+
+  第三个 if:
+    条件 c == 0 → 2 == 0 → False
+    执行 else 分支: c = 2 - 10 → c = -8
+
+最终: a = 20.3, b = 2, c = -8
+```
+
+**执行示例 2——嵌套条件**：
+
+```
+year = 2025
+month = 12
+day = 31
+
+if month == 12:
+    if day == 31:
+        year = year + 1
+        month = 1
+        day = 1
+    fi
+fi
+```
+
+```
+执行追踪:
+  外层 if: month == 12 → 12 == 12 → True
+    内层 if: day == 31 → 31 == 31 → True
+      执行: year = 2026, month = 1, day = 1
+    内层 fi
+  外层 fi
+
+最终: year = 2026, month = 1, day = 1
+```
+
+#### 3.3.4 循环语句
+
+```
+循环语句 ::= "for" 标识符 "," 表达式 ":" 换行
+                { 语句 }
+            "rof"
+```
+
+**执行过程**：
+
+```
+1. 对循环次数表达式求值，得到整数 N
+2. 若 N 不是 int 类型，抛出运行时错误
+3. 初始化循环变量 V = 0
+4. 循环（重复以下步骤直到 V >= N 或遇到 break）:
+   a. 将 V 写入循环变量在变量表中的位置
+   b. 按顺序执行循环体中的每条语句
+   c. 执行到 rof 时，V = V + 1，回到步骤 4 开始
+5. 循环结束，清理循环相关的栈数据
+6. 继续执行 rof 之后的下一条语句
+```
+
+**关键规则**：
+- 循环变量在循环体内可通过赋值语句修改
+- 循环变量可以是 `_`（语义约定：表示不使用循环变量值）
+- 循环可以嵌套；`continue` 和 `break` 只作用于最内层循环
+- 循环次数为 0 或负数时，循环体不执行
+
+**执行示例 1——基本循环**：
+
+```
+total = 0
+for i, 25:
+    total = total + i
+rof
+```
+
+```
+执行追踪:
+  N = 25
+  V = 0: total = 0 + 0 = 0
+  V = 1: total = 0 + 1 = 1
+  V = 2: total = 1 + 2 = 3
+  ...
+  V = 24: total = 276 + 24 = 300
+  V = 25: V >= N, 循环结束
+
+最终: total = 300 (= 0+1+2+...+24)
+```
+
+**执行示例 2——使用 `_` 作为循环变量**：
+
+```
+r = 15
+a = 0
+b = 1
+total = 0
+
+for _, r * 2:
+    temp = a
+    a = b
+    b = temp + b
+    total = total + a
+rof
+```
+
+```
+执行追踪:
+  N = 15 * 2 = 30
+  轮次 1: a=1,  b=1,   total=1
+  轮次 2: a=1,  b=2,   total=2
+  轮次 3: a=2,  b=3,   total=4
+  轮次 4: a=3,  b=5,   total=7
+  ...
+  轮次 30: a=832040, b=1346269, total=2178308
+
+最终: total = 2178308（斐波那契前 31 项和）
+```
+
+##### `continue` 语句
+
+```
+"continue"
+```
+
+**执行过程**：
+
+```
+1. 检查当前是否位于循环体内（否则抛出运行时错误）
+2. 跳过循环体中 continue 之后的所有语句
+3. 循环变量 V 自动加 1
+4. 从循环体开头开始下一轮循环
+```
+
+**执行示例**：
+
+```
+total = 0
+for i, 10:
+    if i / 2 == int(i / 2):
+        continue
+    fi
+    total = total + i
+rof
+```
+
+```
+执行追踪:
+  i=0: 0/2==int(0/2) → True, continue → 跳过 total+=i
+  i=1: 1/2!=int(1/2) → False, total = 0+1 = 1
+  i=2: 2/2==int(2/2) → True, continue → 跳过
+  i=3: 3/2!=int(3/2) → False, total = 1+3 = 4
+  i=4: continue → 跳过
+  i=5: total = 4+5 = 9
+  i=6: continue → 跳过
+  i=7: total = 9+7 = 16
+  i=8: continue → 跳过
+  i=9: total = 16+9 = 25
+
+最终: total = 25（仅奇数被累加: 1+3+5+7+9）
+```
+
+##### `break` 语句
+
+```
+"break"
+```
+
+**执行过程**：
+
+```
+1. 检查当前是否位于循环体内（否则抛出运行时错误）
+2. 立即终止当前循环
+3. 清理循环相关的栈数据
+4. 跳转到 rof 之后的下一条语句继续执行
+```
+
+**执行示例**：
+
+```
+counter = 0
+total = 0
+
+for i, 100:
+    total = total + i
+    if total > 25:
+        break
+    fi
+    counter = counter + 1
+rof
+```
+
+```
+执行追踪:
+  i=0: total=0, 0>25? No,  counter=1
+  i=1: total=1, 1>25? No,  counter=2
+  i=2: total=3, 3>25? No,  counter=3
+  i=3: total=6, 6>25? No,  counter=4
+  i=4: total=10, 10>25? No, counter=5
+  i=5: total=15, 15>25? No, counter=6
+  i=6: total=21, 21>25? No, counter=7
+  i=7: total=28, 28>25? Yes, break → 循环终止
+  （i=8 到 i=99 不会执行）
+
+最终: total = 28, counter = 7
+```
+
+**`break`/`continue` 的作用域**：两者仅作用于最内层包含它们的 `for...rof`，不影响外层循环。
+
+```
+result = 0
+for _, 10:
+    for _, 20:
+        result = result + 1
+        break
+    rof
+rof
+```
+
+```
+执行追踪:
+  外层执行 10 次，每次内层循环:
+    执行 result += 1 一次后立即 break
+  因此 result 每次外层循环只增加 1
+
+最终: result = 10（而非 200）
+```
+
+#### 3.3.5 返回语句
+
+```
+返回语句 ::= "return" 表达式
+```
+
+**执行过程**：
+
+```
+1. 对表达式求值，得到结果 R
+2. 将 R 保存到虚拟机的 result 寄存器中
+3. 发射 PROGRAM_STOP_RUN 指令，虚拟机终止执行
+4. 任何未执行的代码（包括循环的剩余轮次、后续语句、外层调用）都不再执行
+```
+
+**执行示例**：
+
+```
+a = 0
+b = 0
+
+if a == 0:
+    a = 100
+    return a + 25
+fi
+
+if b == 0:
+    b = 200
+    return b
+fi
+```
+
+```
+执行追踪:
+  行 1: a = 0
+  行 2: b = 0
+  行 3 "if a == 0:" → 条件成立
+    行 4: a = 100
+    行 5: 求值 a + 25 → 125, return 125
+    程序终止！
+
+未执行代码:
+  行 7 "if b == 0:" 及其代码块永远不会被执行
+
+程序返回值: 125
+最终变量状态: a = 100, b = 0
+```
+
+**无 return 时的返回值**：若程序执行完毕没有遇到 `return`，则以最后一次表达式语句的结果作为返回值。若两者都没有且 `require_return` 为真，抛出 `No return value after running the code` 错误。
+
+### 3.4 抽象语法树
+
+解析完成后，程序被编译为以下七种操作码（Opcode）构成的 AST：
+
+| Opcode | 含义 | Payload |
+|--------|------|---------|
+| `OpcodeAssign` | 赋值 | `(变量名, ExpressionCombine)` |
+| `OpcodeCondition` | 条件语句 | `list[ConditionCodeBlock]` |
+| `OpcodeForLoop` | 循环语句 | `ForLoopCodeBlock` |
+| `OpcodeContinue` | 跳过本轮循环 | 无 |
+| `OpcodeBreak` | 终止循环 | 无 |
+| `OpcodeExpression` | 表达式语句 | `ExpressionCombine` |
+| `OpcodeReturn` | 返回语句 | `ExpressionCombine` |
+
+`ConditionCodeBlock` 结构：
+- `condition: ExpressionCombine | None` — `None` 表示 `else` 分支
+- `state_line: str` — 条件声明行（用于错误信息）
+- `code_block: list[OpcodeBase]` — 该分支下的代码
+
+`ForLoopCodeBlock` 结构：
+- `variable: str` — 循环变量名
+- `repeat_times: ExpressionCombine` — 循环次数表达式
+- `state_line: str` — 循环声明行（用于错误信息）
+- `code_block: list[OpcodeBase]` — 循环体
+
+### 3.5 类型系统与类型转换
+
+#### 3.5.1 四种基础类型
+
+语言仅支持四种基础数据类型，所有表达式的求值结果必须是其中之一：
+
+| 类型 | 枚举值 | 底层 Python 类型 | 说明 |
+|------|--------|-----------------|------|
+| 整数 `int` | `TYPE_ENUM_INT` (0) | `int` | 32 位有符号整数，范围 `[-2147483648, 2147483647]` |
+| 布尔值 `bool` | `TYPE_ENUM_BOOL` (1) | `bool` | `True`（真）或 `False`（假） |
+| 浮点数 `float` | `TYPE_ENUM_FLOAT` (2) | `float` | 双精度浮点数 |
+| 字符串 `str` | `TYPE_ENUM_STR` (3) | `str` | UTF-8 编码字符串 |
+
+#### 3.5.2 强制类型转换
+
+通过 `int(expr)`、`bool(expr)`、`float(expr)`、`str(expr)` 进行类型间转换。
+
+**`int(expr)`**：对 `expr` 求值，将结果转换为整数。
+
+| 输入 | 输出 | 说明 |
+|------|------|------|
+| `int(10)` | `10` | 整数不变 |
+| `int(True)` | `1` | 布尔值转为 0/1 |
+| `int(False)` | `0` | |
+| `int(5.20)` | `5` | 浮点数截断小数部分 |
+| `int(5.99)` | `5` | 截断（非四舍五入） |
+| `int('7')` | `7` | 整数字符串 |
+| `int('5.99')` | 报错 | 浮点字符串不能直接转整数 |
+| `int('a')` | 报错 | 非数字字符串 |
+
+**`bool(expr)`**：对 `expr` 求值，将结果转换为布尔值。
+
+| 输入 | 输出 | 规则 |
+|------|------|------|
+| `bool(0)` / `bool(0.0)` / `bool(False)` | `False` | 仅 `0`/`0.0`/`False` 为假 |
+| `bool(1)` / `bool(2.5)` / `bool('')` / `bool('hello')` | `True` | 其余全部为真 |
+
+**注意**：与 Python 不同，空字符串 `bool('')` 返回 `True`。这是因为 Python 的 `bool()` 对非空/非零对象均返回 `True`，而空字符串在 Python 中 `bool('')` 为 `False`，但在此语言实现中 `bool()` 底层直接调用 Python `bool()`，空字符串不为零值故也为 `True`。
+
+**`float(expr)`**：对 `expr` 求值，将结果转换为浮点数。
+
+| 输入 | 输出 |
+|------|------|
+| `float(10)` | `10.0` |
+| `float(True)` | `1.0` |
+| `float('3.01')` | `3.01` |
+| `float('ak5')` | 报错 |
+
+**`str(expr)`**：对 `expr` 求值，将结果转换为字符串。
+
+| 输入 | 输出 |
+|------|------|
+| `str(10)` | `'10'` |
+| `str(True)` | `'True'` |
+| `str(1.0)` | `'1.0'` |
+| `str(-2.3)` | `'-2.3'` |
+| `str('hello')` | `'hello'` |
+
+#### 3.5.3 算术运算中的隐式类型转换
+
+| 运算 | 类型规则 |
+|------|---------|
+| `+` `-` `*`（数字） | 若所有操作数均为 `int`，结果为 `int`；任一为 `float` 则结果为 `float` |
+| `/` | 结果恒为 `float` |
+| `+`（字符串） | 操作数必须都是 `str`，结果为 `str` |
+| `*`（字符串重复） | 左侧 `str`，右侧 `int`，结果为 `str` |
+
+#### 3.5.4 运行时类型校验
+
+虚拟机在以下场景执行强制类型校验：
+
+- **循环次数**：`LOOP_CHECK(DATA_TYPE)` 确保循环次数为 `int`（布尔值也会被拒绝，因为 `isinstance(True, int)` 在 Python 中为 `True`，但实现中额外检查了 `isinstance(temp, bool)`）
+- **`{command, ...}`**：参数必须是 `str`
+- **`{score, ...}`**：两个参数都必须为 `str`
+- **`{selector, ...}`**：参数必须为 `str`
+- **`{ref, ...}`**：索引参数必须为 `int`（不含 `bool`），返回值与声明的类型进行断言匹配
+- **内建函数返回值**：必须为四种基础类型之一
+
+### 3.6 短路求值
+
+`and` 和 `or` 运算符采用短路求值策略，即一旦能确定整个表达式的结果，剩余操作数不再求值。
+
+#### 语义规则
+
+**`and` 短路规则**：
+
+```
+A and B and C and ...:
+  从左到右依次求值，遇到第一个 False 立即停止，返回 False
+  若全部为 True，返回 True
+```
+
+**`or` 短路规则**：
+
+```
+A or B or C or ...:
+  从左到右依次求值，遇到第一个 True 立即停止，返回 True
+  若全部为 False，返回 False
+```
+
+#### 字节码实现
+
+短路求值在编译阶段通过条件跳转指令实现：
+
+- `and`：编译时在每两个操作数之间插入 `FALSE_JUMP`——若前面的结果为假，直接跳过后续所有操作数的求值
+- `or`：编译时在每两个操作数之间插入 `TRUE_JUMP`——若前面的结果为真，直接跳过后续所有操作数的求值
+
+#### 实际效果
+
+```
+1+1==0 and 0/0==0
+```
+
+由于 `1+1==0` → `False`，`and` 短路，`0/0==0` 永不执行，避免了除零错误。结果为 `False`。
+
+```
+1+1==2 or 0/0==0
+```
+
+由于 `1+1==2` → `True`，`or` 短路，`0/0==0` 永不执行。结果为 `True`。
+
+```
+9+9>1000 and 7/7==1 and not 'gbk' in 'ggbbkk'
+```
+
+全部为 `False`，但每个操作数都被求值（因为没有提前遇到短路条件）。
+- `9+9>1000` → `18>1000` → `False` → 短路，后两个不再求值。
+
+### 3.7 变量映射与作用域
+
+#### 编译时变量分配
+
+变量名在编译阶段通过 `VariableMapping` 被映射为整数索引：
+
+```
+VariableMapping:
+  _name_to_index: dict[str, int]  # 变量名 → 数组索引
+  _index_to_name: list[str]       # 数组索引 → 变量名（用于错误信息）
+```
+
+分配规则：
+- 编译时首次遇到变量名（赋值语句左侧或循环变量声明）时，调用 `index_by_name(varname, readonly=False)` 分配新索引
+- 表达式中的变量引用调用 `index_by_name(varname, readonly=True)` 查找索引；若变量从未被赋值，此处返回 `None`
+
+#### 运行时变量存储
+
+运行时变量值存储在一个固定长度的列表中：
+
+```
+variables: list[int | bool | float | str | None] = [None] * vars_len
+```
+
+- 变量初始值为 `None`
+- 通过 `LOAD_VALUE(var_index)` 读取，若值为 `None` 则抛出 `Variable used before assignment`
+- 通过 `STORE_VALUE(var_index)` 写入
+- 可通过 `var_maps` 参数在程序启动前预初始化变量值
+
+#### 作用域
+
+当前实现为**全局扁平作用域**：
+- 所有变量（包括循环变量）共享同一个 `VariableMapping`
+- 循环变量在循环体内可被读取和修改
+- 无局部作用域或块级作用域
+- 变量生命周期与程序执行周期一致
+
+### 3.8 错误处理
+
+#### 编译时错误（语法错误）
+
+由 `CodeParser` 在解析阶段抛出，错误信息格式：
+
+```
+Syntax Error.
+
+- Error -
+  <具体错误描述>
+
+- Code -
+  <出错的源代码行及其上下文，出错位置用 >>...<< 标记>
+```
+
+常见编译时错误：
+
+| 错误类型 | 触发条件 |
+|----------|---------|
+| 字符串未闭合 | 词法分析时遇到 EOF 而未找到配对单引号 |
+| 表达式解析失败 | 表达式无法被正确解析（如运算符使用错误、括号不匹配） |
+| 语句格式错误 | 赋值缺少 `=`、条件/循环缺少 `:`、`{...}` 未闭合 |
+| 未闭合的 `fi`/`rof` | 条件语句/循环语句缺少结束标记 |
+| 错误的 `elif`/`else` 位置 | `elif` 出现在 `else` 之后，或 `else` 出现多次 |
+| 非法变量名 | 变量名以数字开头、包含引号/点号，或是关键字 |
+| `break`/`continue` 出现在循环外 | 编译期可部分检测 |
+| 关键字出现在表达式中 | 如 `ref`、`selector` 等未放在 `{...}` 内 |
+
+#### 运行时错误
+
+由 `CodeRunner` 在执行阶段抛出，错误信息格式：
+
+```
+Runtime Error.
+
+- Error -
+  <具体错误描述>
+
+- Code -
+  <出错的源代码行>
+
+# 若在条件语句或循环语句中：
+Runtime Error in Condition. / Runtime Error in For Loop.
+
+- Error -
+  <具体错误描述>
+
+- Condition - / - For Loop -
+  <声明行源代码>
+
+- Code -
+  <代码块中出错的具体代码行>
+```
+
+错误定位通过 `CheckPoint` 和二分查找实现：根据当前 `pc` 在 `check_point` 列表中二分查找对应的检查点，从中获取源代码行信息。
+
+常见运行时错误：
+
+| 错误类型 | 触发条件 |
+|----------|---------|
+| `Variable used before assignment` | 读取从未被赋值的变量 |
+| 循环次数不是整数 | `LOOP_CHECK(DATA_TYPE)` 校验失败 |
+| 类型断言失败 | `{ref, type, index}` 获取的值与声明的类型不匹配 |
+| 函数未定义 | 调用了不存在的内建函数名 |
+| `continue`/`break` 在循环体外 | 编译为 `INTERNAL_PANIC` 指令 |
+| 无返回值 | 程序执行完毕无 `return` 且无表达式语句，`require_return` 为真 |
+| 算术/类型错误 | 如整数与字符串相加、无效的类型转换参数等 |
+| 除零错误 | 除法/取模的除数为 0 |
+
+#### 异常捕获机制
+
+该语言**不提供**用户层面的 `try/catch` 异常捕获语法。所有运行时异常（无论是语言自身抛出的 `InternalException` 还是 Python 层的 `ValueError`/`TypeError`/`IndexError` 等）均会导致程序**立即终止**，并通过检查点定位输出错误信息。
+
+**特殊例外——异步回调中的异常静默丢弃**：
+
+`utils.async_run_func` 和 `utils.async_run_cmd`（及其别名 `gofn`/`gocmd`）的回调函数在 `GameTickTimer._consume` 中被 `try/except Exception: pass` 包裹。这意味着：
+
+- 延迟执行的函数或命令中的**运行时错误不会导致程序终止**
+- 错误信息**不会**被输出到任何可见位置
+- 回调中的异常被静默丢弃，无法被外部感知
+
+因此，在使用异步延迟函数时，建议在自定义函数内部自行进行参数校验和错误处理。
+
+**内建函数中的类型校验**：
+
+部分内建函数在内部进行了显式的参数类型校验（如 `command.set_executor` 检查字符串类型、`strings.*` 通过 `_force_cast` 检查字符串类型），这些校验失败时抛出明确的异常信息。其他函数依赖 Python 底层运算符的类型检查，抛出的是 Python 原生异常（如 `TypeError: unsupported operand type(s)`）。
+
+---
+
+## 4. 编译与虚拟机实现
+
+> 本章描述编译器与虚拟机内部实现细节。用户层面的表达式求值和语句执行语义已在 [3.2.7](#327-表达式求值过程) 和 [3.3](#33-语句) 中详述。
+
+### 4.1 编译流水线概览
+
+```
+源代码 (str)
+  │
+  ▼ 词法分析 (Sentence.parse_all)
+Token 序列 (list[Token])
+  │
+  ▼ 语法分析 (CodeParser.parse)
+AST (list[OpcodeBase])
+  │
+  ▼ 代码生成 (CodeCompiler.compile)
+字节码 + 检查点 + 变量映射表 (CompileResult)
+  │
+  ▼ 虚拟机执行 (CodeRunner.running)
+返回值 (int | bool | float | str | None)
+```
+
+### 4.2 词法分析实现
+
+由 `Sentence` 类实现，基于 `StringReader` 字符流。
+
+**算法流程**：
+
+1. 调用 `jump_space()` 跳过空格和制表符
+2. 读取第一个字符：
+   - 若为 `'`：调用 `parse_string()` 解析字符串字面量（处理转义）
+   - 若为单字符运算符/分隔符（`CHAR_TO_TOKEN_ID` 映射表中的字符）：直接生成对应 Token
+   - 否则：持续读取直到遇到空白或运算符字符，形成词素
+3. 词素与 `KEY_WORD_TO_TOKEN_ID` 匹配：
+   - 命中 → 关键字 Token
+   - 未命中 → `TOKEN_ID_WORD`（后续由语法分析器进一步分类）
+
+**字符串解析**（`StringReader.parse_string`）：持续读取直到遇到未转义的单引号 `'`。当遇到 `\` 时，将 `\` 和后续字符作为转义序列用 `unicode_escape` 解码。
+
+### 4.3 语法分析实现
+
+由 `CodeParser` 类实现，基于 `SentenceReader`（Token 流）。
+
+**入口**：`CodeParser.parse()` 循环调用 `_parse_code()` 直到 Token 流耗尽。
+
+**`_parse_code()` 解析策略**：
+
+1. 记录当前流位置，尝试解析为**表达式语句**（`ExpressionCombine.parse`）
+2. 若失败，回退流指针到记录位置，读取第一个 Token 判断：
+   - `TOKEN_ID_WORD` → `_parse_assign()`（赋值语句）
+   - `TOKEN_ID_KEY_WORD_IF` → `_parse_condition()`（条件语句）
+   - `TOKEN_ID_KEY_WORD_FOR` → `_parse_for_loop()`（循环语句）
+   - `TOKEN_ID_KEY_WORD_RETURN` → `_parse_return()`（返回语句）
+   - `TOKEN_ID_KEY_WORD_CONTINUE` → `OpcodeContinue`
+   - `TOKEN_ID_KEY_WORD_BREAK` → `OpcodeBreak`
+3. 若仍不匹配，返回 Token 信息供上层处理（`elif`/`else`/`fi`/`rof` 等）
+
+**表达式解析**（`ExpressionCombine.parse`）：
+
+1. `parse_to_elements`：遍历 Token 流，将 Token 转换为平铺的 `ExpressionElement` 列表
+2. 按优先级从高到低依次调用 `compact_operator`：
+   - `/` → `*` → `-` → `+`
+   - `>` → `<` → `>=` → `<=` → `==` → `!=`
+   - `in` → `not`（`compact_inverse`）→ `and` → `or`
+3. 紧缩后 `element_payload` 长度为 1
+
+**运算符紧缩**（`compact_operator`）：将连续的平级运算符折叠到单个 `ExpressionOperator` 中：
+
+```
+[6, *, 8, /, 2, /, 4, *, 2, *, 3]
+  → compact_operator("/", ExpressionDivide)
+  → [6, *, Divide(8, 2, 4), *, 2, *, 3]
+  → compact_operator("*", ExpressionTimes)
+  → [Times(6, Divide(8, 2, 4), 2, 3)]
+```
+
+### 4.4 字节码指令集
+
+共 18 条指令，每条指令可附带 0–2 个操作数：
+
+| 操作码 | 值 | 助记符 | 操作数 | 栈变化 | 说明 |
+|--------|---|--------|--------|--------|------|
+| `LOAD_CONST` | 0 | — | `CONST` | `→ val` | 将常量压入栈顶 |
+| `LOAD_VALUE` | 1 | — | `VAR_INDEX` | `→ variables[I]` | 将变量值压栈 |
+| `STORE_VALUE` | 2 | — | `VAR_INDEX` | `val →` | 弹出栈顶存入变量 |
+| `LOOP_JUMP` | 3 | — | `VAR_INDEX, JUMP_TO` | — | 比较栈顶两值控制循环 |
+| `LOOP_CHECK` | 4 | — | `CHECK_TYPE` | `val →` 或 `v1,v2 →` | 循环校验 |
+| `DIRECT_JUMP` | 5 | — | `JUMP_TO` | — | 无条件跳转 |
+| `FALSE_JUMP` | 6 | — | `JUMP_TO` | `val →` | 栈顶为假时跳转 |
+| `TRUE_JUMP` | 7 | — | `JUMP_TO` | `val →` | 栈顶为真时跳转 |
+| `HANDLE_COMPUTE` | 8 | — | `POP_LEN, SUB_TYPE` | `v1...vN → result` | N 元算术运算 |
+| `HANDLE_COMPARE` | 9 | — | `SUB_TYPE` | `a, b → bool` | 二元比较 |
+| `HANDLE_LOGIC_ANDOR` | 10 | — | `SUB_TYPE` | `a, b → bool`（复制） | 逻辑与/或 |
+| `HANDLE_LOGIC_INNOT` | 11 | — | `SUB_TYPE` | `a → bool` 或 `a,b → bool` | 逻辑取反/成员 |
+| `HANDLE_CAST` | 12 | — | `SUB_TYPE` | `val → cast(val)` | 强制类型转换 |
+| `HANDLE_FUNC` | 13 | — | `POP_LEN, FUNC_NAME` | `args... → result` | 调用内建函数 |
+| `HANDLE_INTERACT` | 14 | — | `SUB_TYPE[, REF_TYPE]` | `args... → result` | 游戏交互 |
+| `STORE_RETURN_VAL` | 15 | — | 无 | `val →` | 保存返回值 |
+| `PROGRAM_STOP_RUN` | 16 | — | 无 | — | 终止虚拟机 |
+| `INTERNAL_PANIC` | 17 | — | `ERROR` | — | 抛出内部错误 |
+
+**算术子类型**：
+
+| 值 | 含义 |
+|----|------|
+| 0 | `COMPUTE_TYPE_ADD`（+） |
+| 1 | `COMPUTE_TYPE_REMOVE`（-） |
+| 2 | `COMPUTE_TYPE_TIMES`（*） |
+| 3 | `COMPUTE_TYPE_DIVIDE`（/） |
+
+**比较子类型**：
+
+| 值 | 含义 |
+|----|------|
+| 0 | `COMPARE_TYPE_EQUAL`（==） |
+| 1 | `COMPARE_TYPE_NOT_EQUAL`（!=） |
+| 2 | `COMPARE_TYPE_LESS_THAN`（<，注意栈顺序为 `a > b`） |
+| 3 | `COMPARE_TYPE_GREATER_THAN`（>，注意栈顺序为 `a < b`） |
+| 4 | `COMPARE_TYPE_LESS_EQUAL`（<=） |
+| 5 | `COMPARE_TYPE_GREATER_EQUAL`（>=） |
+
+**游戏交互子类型**：
+
+| 值 | 含义 |
+|----|------|
+| 0 | `INTERACT_TYPE_COMMAND` |
+| 1 | `INTERACT_TYPE_SCORE` |
+| 2 | `INTERACT_TYPE_SELECTOR` |
+| 3 | `INTERACT_TYPE_REF`（附带 `REF_TYPE`） |
+
+### 4.5 代码生成
+
+由 `CodeCompiler` 类实现，将 AST 编译为线性字节码。
+
+**表达式编译**：递归遍历 `ExpressionElement` 树。多操作数运算（如 `a+b+c+d`）先依次将所有操作数压栈，再执行一条 `HANDLE_COMPUTE` 指令。
+
+**条件语句编译**：每个分支编译为 `条件求值 → FALSE_JUMP(占位) → 代码块 → DIRECT_JUMP(占位)`，最后回填所有占位跳转地址。
+
+**循环语句编译**：
+
+```
+1. 编译循环次数表达式 → LOOP_CHECK(DATA_TYPE)
+2. 压入初始值 0
+3. 标记 continue_pc
+4. LOOP_JUMP(VAR_INDEX, end_pc)  — 比较 + 递增 + 条件跳转
+5. 编译循环体
+6. DIRECT_JUMP → continue_pc    — 循环尾跳回循环头
+7. LOOP_CHECK(POP_STACK)         — 清理计数器和循环次数
+8. 回填所有 break 和 LOOP_JUMP 的跳转地址
+```
+
+**`break` 编译**：发射 `DIRECT_JUMP(0)` 占位指令，地址记录到 `ForLoopEnv.end_indexes`，在循环体编译完成后回填。
+
+**`continue` 编译**：发射 `DIRECT_JUMP(continue_pc)`，直接跳转到循环头部。
+
+**检查点生成**：每条语句编译时同步生成 `CheckPoint`，记录 `point_type`、`start_pc`、`end_pc` 和源代码行，用于运行时错误定位。
+
+### 4.6 虚拟机执行
+
+由 `CodeRunner` 类实现。基于栈的虚拟机，核心组件：
+
+- **`pc`**：程序计数器
+- **`stack`**：操作数栈（`list[int | bool | float | str]`）
+- **`variables`**：变量数组（`list[int | bool | float | str | None]`）
+- **`result`**：返回值寄存器
+
+**执行循环**：`while True` 循环逐条执行字节码，遇到 `PROGRAM_STOP_RUN`(16) 或异常时终止。
+
+**算术运算**（`HANDLE_COMPUTE`）根据 `POP_LEN` 选择不同执行路径——2 操作数用栈顶弹出、≥3 操作数用切片操作。
+
+**`LOOP_JUMP` 逻辑**：
+
+```
+if stack[-1] < stack[-2]:           # 循环变量 < 循环次数?
+    variables[var_index] = stack[-1] # 更新循环变量
+    stack[-1] += 1                   # 递增
+    pc += 3                          # 继续循环
+else:
+    pc = byte_code[pc+2]             # 跳出循环
+```
+
+**错误定位**：发生异常时，通过 `_chk_by_pc(pc)` 在检查点列表中二分查找对应的 `CheckPoint`，获取出错源代码行的信息并格式化输出。
+
+---
+
+## 5. 内建库函数
+
+内建函数分为两类：
+
+- **静态内建函数**：`static` 字典中的函数，只要 NEMC 接口组件可用即生效，不依赖特定模组系统实例
+- **动态内建函数**：`dynamic` 字典中的函数，依赖 `ServerSystem` 实例，需要模组实际运行时可用
+
+### 调用约定
+
+所有内建函数在代码中通过 `{func, 函数名(参数...)}` 语法调用。函数名采用 `模块.函数名` 的点分隔命名。
+
+```
+{func, math.sqrt(4)}
+{func, strings.split('a,b,c', ',')}
+{func, slices.get(mySlicePtr, 0)}
+```
+
+### 参数类型约定
+
+函数参数必须是四种基础类型（`int`/`bool`/`float`/`str`）之一。文档中使用的类型标记：
+
+| 标记 | 含义 |
+|------|------|
+| `int` | 32 位有符号整数 |
+| `bool` | 布尔值 `True`/`False` |
+| `float` | 双精度浮点数 |
+| `str` | UTF-8 字符串 |
+| `基础类型` | `int`/`bool`/`float`/`str` 之一 |
+| `any` | 任意类型（内部实现可接收，用户代码通过指针传入） |
+| `ptr: int` | 对象指针（由 `object.ref` 或构造函数返回的整数） |
+| `[optional]` | 可选参数，方括号内的参数可省略 |
+
+### 指针系统
+
+超出四种基础类型的对象（如切片、映射、UUID 等）通过**指针系统**管理。指针是一个 32 位有符号整数（范围 `[-2³¹, 2³¹-1]`，排除 0）。对象由 `object.ref` 或专用构造函数创建并分配指针，之后通过指针访问对象。未被 `pin` 固定的对象在代码执行结束后自动释放。
+
+### 返回值约束
+
+所有内建函数的返回值必须为四种基础类型之一。若函数需要返回复杂对象（如切片、映射、UUID），则返回指向该对象的**指针**（`int` 类型）。虚拟机在执行 `HANDLE_FUNC` 后会校验返回值类型，不合规将抛出运行时错误。
+
+### 常见异常
+
+本节约定的异常描述使用以下格式：`异常类型: 触发条件`。所有异常均为运行时异常（`Exception`），会终止程序执行并通过检查点定位错误位置。
+
+| 通用异常 | 触发条件 |
+|----------|---------|
+| `Invalid address or nil pointer dereference` | 传入的指针无效（未指向任何对象） |
+| `Target object cannot be dereferenced` | 尝试解引用非基础类型的对象 |
+| `Target object is pinned and cannot be released` | 尝试释放已被固定的对象 |
+| 类型错误 | 参数类型不匹配（如期望 `int` 但传入了 `str`） |
+
+### 5.1 对象管理 (`object.*`)
+
+对象管理器 `BaseManager` 提供了引用式的指针系统，用于管理超出四种基础类型的外部对象。
+
+#### `object.ref(obj: any) → int`
+
+**执行过程**：
+1. 生成一个随机的、未被占用的 32 位有符号整数作为指针
+2. 将 `obj` 存入内部映射表 `_mapping[ptr] = obj`
+3. 返回指针
+
+**异常**：不抛出异常（调用者负责传入正确类型的参数，但 `obj` 可为任意类型）。
+
+**注意**：若 `obj` 是基础类型（`int`/`bool`/`float`/`str`），则 `ref` 创建的是该值的一个快照副本，后续对原值的修改不会影响指针指向的对象。
+
+#### `object.can_deref(ptr: int) → bool`
+
+**执行过程**：
+1. 检查 `ptr` 是否在内部映射表中：若不存在，抛出 `Invalid address or nil pointer dereference`
+2. 检查 `_mapping[ptr]` 是否为 `int`/`bool`/`float`/`str`（含 `unicode` 字符串）：若是，返回 `True`；否则返回 `False`
+
+**异常**：`Invalid address or nil pointer dereference` — `ptr` 无效。
+
+#### `object.deref(ptr: int) → 基础类型`
+
+**执行过程**：
+1. 检查 `ptr` 是否在内部映射表中：若不存在，抛出异常
+2. 获取 `_mapping[ptr]` 指向的对象
+3. 若对象是基础类型，返回该值；否则抛出 `Target object cannot be dereferenced`
+
+**异常**：
+- `Invalid address or nil pointer dereference` — `ptr` 无效
+- `Target object cannot be dereferenced` — 对象不是基础类型（如为切片、映射等）
+
+#### `object.release(ptr: int) → bool`
+
+**执行过程**：
+1. 检查 `ptr` 是否在内部映射表中：若不存在，抛出异常
+2. 检查 `ptr` 是否在 `_pinned` 集合中：若在，抛出 `Target object is pinned and cannot be released`
+3. 从 `_mapping` 中删除该条目，返回 `True`
+
+**异常**：
+- `Invalid address or nil pointer dereference` — `ptr` 无效
+- `Target object is pinned and cannot be released` — 对象已被固定
+
+#### `object.pin(ptr: int) → bool`
+
+**执行过程**：
+1. 检查 `ptr` 是否在内部映射表中：若不存在，抛出异常
+2. 将 `ptr` 加入 `_pinned` 集合，标记为已固定
+3. 返回 `True`
+
+**异常**：`Invalid address or nil pointer dereference` — `ptr` 无效。
+
+**效果**：被固定的对象在代码执行结束后不会被 `release_internal` 自动清理，多次 `pin` 不产生错误。
+
+#### `object.finalise(ptr: int) → bool`
+
+**执行过程**：
+1. 检查 `ptr` 是否在内部映射表中：若不存在，抛出异常
+2. 从 `_pinned` 集合中移除 `ptr`
+3. 返回 `True`
+
+**异常**：`Invalid address or nil pointer dereference` — `ptr` 无效。目标对象未被固定时不报错。
+
+#### `object.make_none() → int`
+
+**执行过程**：内部调用 `self.ref(None)`，创建一个指向 Python `None` 的指针并返回。用于初始化需要"空值"引用的场景。
+
+**异常**：不抛出异常。
+
+#### `object.is_ptr(ptr: int) → bool`
+
+**执行过程**：检查 `ptr` 是否在 `_mapping` 中。返回 `True` 表示该整数是一个有效的对象指针。
+
+**异常**：不抛出异常（传入非 `int` 时由 Python 运行时处理）。
+
+#### `object.is_none(ptr: int) → bool`
+
+**执行过程**：若 `ptr` 在 `_mapping` 中且 `_mapping[ptr] is None`，返回 `True`；否则返回 `False`（包括指针无效的情况）。
+
+**异常**：不抛出异常。
+
+#### `object.raw_type(obj: int|bool|float|str) → int`
+
+**执行过程**：检查 `obj` 的 Python 类型并返回对应的枚举值：
+- `bool` → `RAW_TYPE_BOOL` (1)
+- `int`（非 `bool`）→ `RAW_TYPE_INT` (0)
+- `float` → `RAW_TYPE_FLOAT` (2)
+- `str` → `RAW_TYPE_STR` (3)
+
+**异常**：若 `obj` 不是四种基础类型之一，函数返回 `None`（隐式）。
+
+#### `object.ref_type(ptr: int) → int`
+
+**执行过程**：
+1. 检查 `ptr` 是否在内部映射表中：若不存在，抛出异常
+2. 按优先级检查 `_mapping[ptr]` 的类型，返回对应的引用类型枚举值（见下方枚举表）
+
+**异常**：`Invalid address or nil pointer dereference` — `ptr` 无效。
+
+**引用类型枚举**：
+
+| 枚举值 | 常量 | 对应类型 |
+|--------|------|---------|
+| 0 | `REF_TYPE_INT` | `int`（非 `bool`） |
+| 1 | `REF_TYPE_BOOL` | `bool` |
+| 2 | `REF_TYPE_FLOAT` | `float` |
+| 3 | `REF_TYPE_STR` | `str` |
+| 4 | `REF_TYPE_NONE` | `None` |
+| 5 | `REF_TYPE_SLICE` | `list`（切片） |
+| 6 | `REF_TYPE_MAP` | `dict`（映射） |
+| 7 | `REF_TYPE_TUPLE` | `tuple`（元组） |
+| 8 | `REF_TYPE_SET` | `set`（集合） |
+| 9 | `REF_TYPE_UUID` | `uuid.UUID` |
+| 10 | `REF_TYPE_STRUCT_TIME` | `time.struct_time` |
+| 11 | `REF_TYPE_DATETIME_TIMEDELTA` | `datetime.timedelta` |
+| 12 | `REF_TYPE_DATETIME_TIME` | `datetime.time` |
+| 13 | `REF_TYPE_DATETIME_DATE` | `datetime.date` |
+| 14 | `REF_TYPE_DATETIME_DATETIME` | `datetime.datetime` |
+| 65535 | `REF_TYPE_UNKNOWN` | 无法识别的类型 |
+
+**原始类型枚举**：
+
+| 枚举值 | 常量 | 对应类型 |
+|--------|------|---------|
+| 0 | `RAW_TYPE_INT` | `int`（非 `bool`） |
+| 1 | `RAW_TYPE_BOOL` | `bool` |
+| 2 | `RAW_TYPE_FLOAT` | `float` |
+| 3 | `RAW_TYPE_STR` | `str` |
+
+### 5.2 反射 (`reflect.*`)
+
+提供类似 Python `operator` 模块的反射操作，所有函数操作的指针参数 `ptr` 在无效时会抛出 `Invalid address or nil pointer dereference`。
+
+#### 类型转换与格式化
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `reflect.cast` | `ptr: int` | 基础类型 | 等价于 `object.deref(ptr)`，解引用指针指向的对象。若非基础类型则抛出异常 |
+| `reflect.format` | `ptr: int [, accuracy: int]` | `str` | 调用 `format(obj, ".{accuracy}f")` 格式化对象。`accuracy` 为非 `int` 时抛出类型错误 |
+| `reflect.length` | `ptr: int` | `int` | 对 `deref(ptr)` 调用 Python `len()`。若对象不支持 `len` 则抛出 Python 层异常 |
+
+#### 拷贝
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `reflect.copy` | `ptr: int` | `int` | 对 `deref(ptr)` 调用 `copy.copy()` 浅拷贝，结果通过 `ref` 注册并返回新指针 |
+| `reflect.deepcopy` | `ptr: int` | `int` | 对 `deref(ptr)` 调用 `copy.deepcopy()` 深拷贝，结果通过 `ref` 注册并返回新指针 |
+
+#### 属性操作
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `reflect.vars` | `ptr: int` | `int` | 返回 `vars(deref(ptr))` 的 `ref` 指针 |
+| `reflect.dir` | `ptr: int` | `int` | 返回 `dir(deref(ptr))` 的 `ref` 指针 |
+| `reflect.hasattr` | `ptr: int, name: str` | `bool` | 调用 `hasattr(deref(ptr), name)`。`name` 须为 `str` |
+| `reflect.getattr` | `ptr: int, name: str` | 基础类型 | 调用 `getattr(deref(ptr), name)`。属性不存在时抛出 Python `AttributeError` |
+| `reflect.setattr` | `ptr: int, name: str, value: 基础类型` | `bool` | 调用 `setattr(deref(ptr), name, value)`，总是返回 `True` |
+| `reflect.delattr` | `ptr: int, name: str` | `bool` | 调用 `delattr(deref(ptr), name)`，总是返回 `True`。属性不存在时抛出 `AttributeError` |
+| `reflect.callable` | `ptr: int` | `bool` | 对 `deref(ptr)` 调用 Python `callable()` |
+| `reflect.call` | `ptr: int, args: int` | 基础类型 | 对 `deref(ptr)` 以 `deref(args)` 作为参数进行调用。`args` 须为切片或元组指针 |
+
+#### 算术反射
+
+所有运算先对参数解引用（若为指针），然后执行对应的 Python 运算符。类型不兼容时 Python 层抛出异常。
+
+| 函数 | 参数类型 | 对应运算符 |
+|------|---------|-----------|
+| `reflect.add` | `a: 基础类型, b: 基础类型` | `a + b` |
+| `reflect.remove` | `a: 基础类型, b: 基础类型` | `a - b` |
+| `reflect.times` | `a: 基础类型, b: 基础类型` | `a * b` |
+| `reflect.divide` | `a: 基础类型, b: 基础类型` | `a / b`（结果恒为 `float`） |
+| `reflect.floordiv` | `a: 基础类型, b: 基础类型` | `a // b` |
+| `reflect.negative` | `a: 基础类型` | `-a` |
+| `reflect.abs` | `a: 基础类型` | `abs(a)` |
+| `reflect.round` | `a: 基础类型 [, n: int]` | `round(a, n)` |
+| `reflect.mod` | `a: 基础类型, b: 基础类型` | `a % b` |
+| `reflect.pow` | `a: 基础类型, b: 基础类型` | `pow(a, b)` |
+| `reflect.powmod` | `a: 基础类型, b: 基础类型, mod: int` | `pow(a, b, mod)` |
+| `reflect.max` | `a: 基础类型, b: 基础类型` | `max(a, b)` |
+| `reflect.min` | `a: 基础类型, b: 基础类型` | `min(a, b)` |
+| `reflect.sum` | `ptr: int` | 对 `deref(ptr)`（须为切片/元组）求和 |
+
+#### 比较反射
+
+| 函数 | 参数类型 | 对应运算符 |
+|------|---------|-----------|
+| `reflect.greater` | `a: 基础类型, b: 基础类型` | `a > b` |
+| `reflect.less` | `a: 基础类型, b: 基础类型` | `a < b` |
+| `reflect.greater_equal` | `a: 基础类型, b: 基础类型` | `a >= b` |
+| `reflect.less_equal` | `a: 基础类型, b: 基础类型` | `a <= b` |
+| `reflect.equal` | `a: 基础类型, b: 基础类型` | `a == b` |
+| `reflect.not_equal` | `a: 基础类型, b: 基础类型` | `a != b` |
+
+#### 逻辑与位运算反射
+
+| 函数 | 参数类型 | 对应运算符 |
+|------|---------|-----------|
+| `reflect.and` | `a: 基础类型, b: 基础类型` | `a and b`（注意：非短路） |
+| `reflect.or` | `a: 基础类型, b: 基础类型` | `a or b`（注意：非短路） |
+| `reflect.inverse` | `a: 基础类型` | `not a` |
+| `reflect.in` | `a: 基础类型, b: 基础类型` | `a in b` |
+| `reflect.bit_and` | `a: int, b: int` | `a & b` |
+| `reflect.bit_or` | `a: int, b: int` | `a \| b` |
+| `reflect.bit_xor` | `a: int, b: int` | `a ^ b` |
+| `reflect.bit_not` | `a: int` | `~a` |
+| `reflect.left_shift` | `a: int, b: int` | `a << b` |
+| `reflect.right_shift` | `a: int, b: int` | `a >> b` |
+
+> **注意**：`reflect.and` 和 `reflect.or` 是 Python 函数调用，**不具备短路求值**——所有参数在传入前已被求值。
+
+### 5.3 切片 (`slices.*`)
+
+切片是动态数组，底层为 Python `list`。所有操作通过指针进行。**公共异常**：所有 `ptr` 参数无效时抛出 `Invalid address or nil pointer dereference`；索引越界时抛出对应的 Python `IndexError`；类型不匹配时抛出 `TypeError`。
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `slices.new` | `*elements: 基础类型` | `int` | 创建包含传入元素的 `list`，`ref` 注册后返回指针 |
+| `slices.make` | `size: int, value: 基础类型` | `int` | 创建 `[value] * size` 的列表并返回指针。`size < 0` 时 Python 抛出异常 |
+| `slices.cast` | `ptr: int` | `str` | 对 `deref(ptr)` 调用 `str()`，结果限 512 字符 |
+| `slices.length` | `ptr: int` | `int` | `len(deref(ptr))` |
+| `slices.copy` | `ptr: int` | `int` | `copy.copy(deref(ptr))`，新切片注册后返回指针 |
+| `slices.format` | `ptr: int` | `str` | `format(deref(ptr))` |
+| `slices.append` | `ptr: int, value: 基础类型` | `bool` | `deref(ptr).append(value)`，总是返回 `True` |
+| `slices.ptr_append` | `ptr: int, src_ptr: int` | `bool` | 将 `src_ptr` 指向的元素值追加到切片末尾 |
+| `slices.get` | `ptr: int, index: int` | 基础类型 | `deref(ptr)[index]`。索引越界时 Python 抛出 `IndexError` |
+| `slices.ptr_get` | `ptr: int, index: int` | `int` | 同 `get`，但将结果 `ref` 后返回指针 |
+| `slices.set` | `ptr: int, index: int, value: 基础类型` | `bool` | `deref(ptr)[index] = value`。索引越界时抛出 `IndexError` |
+| `slices.ptr_set` | `ptr: int, index: int, src_ptr: int` | `bool` | 通过指针获取值后设置元素 |
+| `slices.max` | `ptr: int` | 基础类型 | `max(deref(ptr))`。空切片时 Python 抛出 `ValueError` |
+| `slices.min` | `ptr: int` | 基础类型 | `min(deref(ptr))`。空切片时 Python 抛出 `ValueError` |
+| `slices.sum` | `ptr: int` | 基础类型 | `sum(deref(ptr))` |
+| `slices.sub` | `ptr: int, start: int, end: int` | `int` | `deref(ptr)[start:end]`，子切片注册后返回新指针 |
+| `slices.insert` | `ptr: int, index: int, value: 基础类型` | `bool` | `deref(ptr).insert(index, value)` |
+| `slices.ptr_insert` | `ptr: int, index: int, src_ptr: int` | `bool` | 通过指针获取值后插入 |
+| `slices.pop` | `ptr: int [, index: int]` | 基础类型 | `deref(ptr).pop(index)`。默认弹出末尾元素。空切片或索引越界时抛出 `IndexError` |
+| `slices.ptr_pop` | `ptr: int [, index: int]` | `int` | 同 `pop`，但将结果 `ref` 后返回指针 |
+| `slices.reverse` | `ptr: int` | `bool` | `deref(ptr).reverse()`，原地反转 |
+| `slices.sort` | `ptr: int [, order: bool]` | `bool` | `deref(ptr).sort(reverse=order)`。默认升序；`order=True` 为降序 |
+| `slices.concat` | `ptr1: int, ptr2: int` | `int` | `deref(ptr1) + deref(ptr2)`，结果注册为新切片并返回指针 |
+| `slices.binsearch` | `ptr: int, value: 基础类型` | `int` | 使用 `bisect_left` 二分查找，返回索引；若值超出范围返回 `-1`。**要求切片已排序** |
+| `slices.ptr_binsearch` | `ptr: int, src_ptr: int` | `int` | 通过指针值二分查找 |
+| `slices.in` | `ptr: int, value: 基础类型` | `bool` | `value in deref(ptr)` |
+| `slices.ptr_in` | `ptr: int, src_ptr: int` | `bool` | 通过指针值检查成员 |
+
+### 5.4 映射 (`maps.*`)
+
+映射（Map/Dict）是键值对集合，底层为 Python `dict`。**公共异常**：所有 `ptr` 参数无效时抛出解引用异常；键不存在于映射中时，`get`/`pop`/`del` 类操作可能抛出 Python `KeyError`（具体见下表）。
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `maps.new` | `[ordered: bool]` | `int` | 创建 `dict` 或 `OrderedDict`（`ordered=True`），`ref` 注册后返回指针 |
+| `maps.cast` | `ptr: int` | `str` | `str(deref(ptr))`，限 512 字符 |
+| `maps.length` | `ptr: int` | `int` | `len(deref(ptr))` |
+| `maps.copy` | `ptr: int` | `int` | `copy.copy(deref(ptr))`，返回新指针 |
+| `maps.format` | `ptr: int` | `str` | `format(deref(ptr))` |
+| `maps.exist` | `ptr: int, key: 基础类型` | `bool` | `key in deref(ptr)` |
+| `maps.ptr_exist` | `ptr: int, key_ptr: int` | `bool` | 解引用 `key_ptr` 获取键值后执行成员检查 |
+| `maps.get` | `ptr: int, key: 基础类型` | 基础类型 | `deref(ptr)[key]`。**键不存在时 Python 抛出 `KeyError`** |
+| `maps.ptr_get` | `ptr: int, key_ptr: int` | `int` | 通过指针键获取值，结果 `ref` 后返回指针。键不存在时抛出 `KeyError` |
+| `maps.pop` | `ptr: int, key: 基础类型` | 基础类型 | `deref(ptr).pop(key)`。**键不存在时抛出 `KeyError`** |
+| `maps.ptr_pop` | `ptr: int, key_ptr: int` | `int` | 通过指针键弹出，结果 `ref` 后返回指针 |
+| `maps.set` | `ptr: int, key: 基础类型, value: 基础类型` | `bool` | `deref(ptr)[key] = value`，总是返回 `True` |
+| `maps.ptr_set` | `ptr: int, key_ptr: int, val_ptr: int` | `bool` | 解引用键和值的指针后设置 |
+| `maps.del` | `ptr: int, key: 基础类型` | `bool` | `del deref(ptr)[key]`。**键不存在时抛出 `KeyError`** |
+| `maps.ptr_del` | `ptr: int, key_ptr: int` | `bool` | 通过指针键删除 |
+| `maps.clear` | `ptr: int` | `bool` | `deref(ptr).clear()` |
+| `maps.keys` | `ptr: int` | `int` | `list(deref(ptr).keys())`，返回切片指针 |
+| `maps.values` | `ptr: int` | `int` | `list(deref(ptr).values())`，返回切片指针 |
+| `maps.items` | `ptr: int` | `int` | `list(deref(ptr).items())`，返回切片指针（每个元素为 `(key, value)` 元组） |
+| `maps.equal` | `ptr1: int, ptr2: int` | `bool` | `deref(ptr1) == deref(ptr2)` |
+
+### 5.5 元组 (`tuple.*`)
+
+元组是不可变序列，底层为 Python `tuple`。**公共异常**：`ptr` 无效时抛出解引用异常；索引越界时 Python 抛出 `IndexError`。
+
+| 函数 | 参数类型 | 返回值 | 说明 |
+|------|---------|--------|------|
+| `tuple.new` | `*elements: 基础类型` | `int` | 创建包含传入元素的元组并返回指针 |
+| `tuple.cast` | `ptr: int` | `str` | `str(deref(ptr))` |
+| `tuple.length` | `ptr: int` | `int` | `len(deref(ptr))` |
+| `tuple.format` | `ptr: int` | `str` | `format(deref(ptr))` |
+| `tuple.get` | `ptr: int, index: int` | 基础类型 | `deref(ptr)[index]` |
+| `tuple.ptr_get` | `ptr: int, index: int` | `int` | 同 `get`，结果 `ref` 后返回指针 |
+| `tuple.sub` | `ptr: int, start: int, end: int` | `int` | `deref(ptr)[start:end]`，子元组注册后返回指针 |
+| `tuple.max` | `ptr: int` | 基础类型 | `max(deref(ptr))` |
+| `tuple.min` | `ptr: int` | 基础类型 | `min(deref(ptr))` |
+| `tuple.sum` | `ptr: int` | 基础类型 | `sum(deref(ptr))` |
+| `tuple.in` | `ptr: int, value: 基础类型` | `bool` | `value in deref(ptr)` |
+| `tuple.ptr_in` | `ptr: int, src_ptr: int` | `bool` | 通过指针值检查成员 |
+
+### 5.6 集合 (`set.*`)
+
+集合是无序不重复元素集，底层为 Python `set`。**公共异常**：`ptr` 无效时抛出解引用异常；`remove` 系列函数在元素不存在时抛出 `KeyError`（`discard` 系列不抛出）。
+
+| 函数 | 参数类型 | 返回值 | 说明 |
+|------|---------|--------|------|
+| `set.new` | `*elements: 基础类型` | `int` | 创建包含传入元素的集合并返回指针 |
+| `set.cast` | `ptr: int` | `str` | `str(deref(ptr))` |
+| `set.length` | `ptr: int` | `int` | `len(deref(ptr))` |
+| `set.copy` | `ptr: int` | `int` | `copy.copy(deref(ptr))`，返回新指针 |
+| `set.format` | `ptr: int` | `str` | `format(deref(ptr))` |
+| `set.exist` | `ptr: int, value: 基础类型` | `bool` | `value in deref(ptr)` |
+| `set.ptr_exist` | `ptr: int, src_ptr: int` | `bool` | 通过指针值检查成员 |
+| `set.add` | `ptr: int, value: 基础类型` | `bool` | `deref(ptr).add(value)`，总是返回 `True` |
+| `set.ptr_add` | `ptr: int, src_ptr: int` | `bool` | 通过指针添加元素 |
+| `set.remove` | `ptr: int, value: 基础类型` | `bool` | `deref(ptr).remove(value)`。**元素不存在时抛出 `KeyError`** |
+| `set.ptr_remove` | `ptr: int, src_ptr: int` | `bool` | 通过指针移除。元素不存在时抛出 `KeyError` |
+| `set.discard` | `ptr: int, value: 基础类型` | `bool` | `deref(ptr).discard(value)`，**元素不存在不报错** |
+| `set.ptr_discard` | `ptr: int, src_ptr: int` | `bool` | 通过指针丢弃 |
+| `set.pop` | `ptr: int` | 基础类型 | `deref(ptr).pop()`。**空集合时抛出 `KeyError`** |
+| `set.ptr_pop` | `ptr: int` | `int` | 弹出并返回指针 |
+| `set.clear` | `ptr: int` | `bool` | `deref(ptr).clear()` |
+| `set.max` | `ptr: int` | 基础类型 | `max(deref(ptr))` |
+| `set.min` | `ptr: int` | 基础类型 | `min(deref(ptr))` |
+| `set.sum` | `ptr: int` | 基础类型 | `sum(deref(ptr))` |
+| `set.difference` | `ptr1: int, ptr2: int` | `int` | `deref(ptr1) - deref(ptr2)`，返回新集合的指针 |
+| `set.symmetric_difference` | `ptr1: int, ptr2: int` | `int` | `deref(ptr1) ^ deref(ptr2)` |
+| `set.intersection` | `ptr1: int, ptr2: int` | `int` | `deref(ptr1) & deref(ptr2)` |
+| `set.union` | `ptr1: int, ptr2: int` | `int` | `deref(ptr1) \| deref(ptr2)` |
+| `set.isdisjoint` | `ptr1: int, ptr2: int` | `bool` | `deref(ptr1).isdisjoint(deref(ptr2))` |
+| `set.issubset` | `ptr1: int, ptr2: int` | `bool` | `deref(ptr1).issubset(deref(ptr2))` |
+| `set.issuperset` | `ptr1: int, ptr2: int` | `bool` | `deref(ptr1).issuperset(deref(ptr2))` |
+
+### 5.7 字符串 (`strings.*`)
+
+字符串操作函数的扩展。所有需要字符串参数的函数内部通过 `_force_cast` 进行类型校验——传入非 `str`（含 `bool`）时抛出异常 `Exist an argument that should be a string but is not a string`。
+
+#### 类型转换与基本信息
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `strings.cast` | `ptr: int` | `str` | 对 `deref(ptr)` 调用 `str()` 并返回。无效指针时抛出解引用异常 |
+| `strings.length` | `string: str` | `int` | 返回 `len(string)` |
+| `strings.format` | `string: str, *args: 基础类型` | `str` | 调用 `string.format(*args)`。占位符与参数不匹配时 Python 抛出 `IndexError`/`KeyError` |
+| `strings.sub` | `string: str, start: int, end: int` | `str` | 返回 `string[start:end]`。`start` 或 `end` 超出范围、或 `end < start` 时抛出索引异常 |
+| `strings.ord` | `string: str` | `int` | 返回 `ord(string)`（单字符的 Unicode 码点） |
+| `strings.chr` | `i: int` | `str` | 返回 `chr(i)`。`i` 超出 Unicode 范围时 Python 抛出 `ValueError` |
+
+#### 大小写与格式判断
+
+| 函数 | 参数类型 | 返回值 | 异常 |
+|------|---------|--------|------|
+| `strings.capitalize` | `string: str` | `str` | 字符串非 `str` 时抛异常 |
+| `strings.lower` | `string: str` | `str` | 同上 |
+| `strings.upper` | `string: str` | `str` | 同上 |
+| `strings.swapcase` | `string: str` | `str` | 同上 |
+| `strings.title` | `string: str` | `str` | 同上 |
+| `strings.isalnum` | `string: str` | `bool` | 同上 |
+| `strings.isalpha` | `string: str` | `bool` | 同上 |
+| `strings.isdigit` | `string: str` | `bool` | 同上 |
+| `strings.islower` | `string: str` | `bool` | 同上 |
+| `strings.isspace` | `string: str` | `bool` | 同上 |
+| `strings.istitle` | `string: str` | `bool` | 同上 |
+| `strings.isupper` | `string: str` | `bool` | 同上 |
+
+#### 对齐与填充
+
+| 函数 | 参数类型 | 返回值 | 执行过程 |
+|------|---------|--------|---------|
+| `strings.center` | `string: str, width: int [, fillchar: str]` | `str` | `string.center(width, fillchar)`，默认填充空格 |
+| `strings.ljust` | `string: str, width: int [, fillchar: str]` | `str` | `string.ljust(width, fillchar)` |
+| `strings.rjust` | `string: str, width: int [, fillchar: str]` | `str` | `string.rjust(width, fillchar)` |
+| `strings.zfill` | `string: str, width: int` | `str` | `string.zfill(width)`，左侧补 `0` |
+
+#### 子串查找与判断
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `strings.startswith` | `string: str, prefix: str [, start: int, end: int]` | `bool` | `string.startswith(prefix, start, end)` |
+| `strings.endswith` | `string: str, suffix: str [, start: int, end: int]` | `bool` | `string.endswith(suffix, start, end)` |
+| `strings.find` | `string: str, sub: str [, start: int, end: int]` | `int` | `string.find(sub, start, end)`，未找到返回 `-1` |
+| `strings.rfind` | `string: str, sub: str [, start: int, end: int]` | `int` | `string.rfind(sub, start, end)`，未找到返回 `-1` |
+| `strings.index` | `string: str, sub: str [, start: int, end: int]` | `int` | `string.index(sub, start, end)`，**未找到时抛出 `ValueError`** |
+| `strings.rindex` | `string: str, sub: str [, start: int, end: int]` | `int` | `string.rindex(sub, start, end)`，**未找到时抛出 `ValueError`** |
+| `strings.equalfold` | `string_a: str, string_b: str` | `bool` | 比较 `lower(a) == lower(b)`，忽略大小写判断相等 |
+
+#### 修剪与替换
+
+| 函数 | 参数类型 | 返回值 | 执行过程 |
+|------|---------|--------|---------|
+| `strings.lstrip` | `string: str [, chars: str]` | `str` | `string.lstrip(chars)` |
+| `strings.rstrip` | `string: str [, chars: str]` | `str` | `string.rstrip(chars)` |
+| `strings.strip` | `string: str [, chars: str]` | `str` | `string.strip(chars)` |
+| `strings.replace` | `string: str, old: str, new: str [, count: int]` | `str` | `string.replace(old, new, count)`，`count` 默认 `-1`（全部替换） |
+
+#### 分割与连接
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `strings.split` | `string: str [, sep: str, maxsplit: int]` | `int` | 调用 `string.split(sep, maxsplit)`，结果注册为切片并返回指针。`sep` 默认为 `None`（空白分割），`maxsplit` 默认 `-1` |
+| `strings.rsplit` | `string: str [, sep: str, maxsplit: int]` | `int` | 从右侧分割 `string.rsplit(sep, maxsplit)`，结果注册为切片并返回指针 |
+| `strings.join` | `string: str, slice_ptr: int` | `str` | 解引用 `slice_ptr` 得到切片，调用 `string.join(切片)` 连接。**`slice_ptr` 指向非切片时抛出 `Given ptr of slice is not a slice`**；切片元素非字符串时 Python 抛出 `TypeError` |
+
+### 5.8 UUID (`uuid.*`)
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `uuid.new` | 无 | `int` | 生成新的随机 UUID（v4） |
+| `uuid.format` | `ptr: int` | `str` | UUID 的字符串表示 |
+| `uuid.string` | `ptr: int` | `str` | UUID 的短字符串 |
+| `uuid.bytes` | `ptr: int` | `int` | UUID 的 16 字节大端表示（切片指针） |
+| `uuid.bytes_le` | `ptr: int` | `int` | UUID 的 16 字节小端表示（切片指针） |
+| `uuid.hex` | `ptr: int` | `str` | UUID 的 32 字符十六进制 |
+| `uuid.from_string` | `s: str` | `int` | 从字符串解析 UUID |
+| `uuid.from_bytes` | `ptr: int` | `int` | 从大端字节创建 UUID |
+| `uuid.from_bytes_le` | `ptr: int` | `int` | 从小端字节创建 UUID |
+| `uuid.from_hex` | `hex: str` | `int` | 从十六进制字符串创建 UUID |
+
+### 5.9 时间 (`time.*`)
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `time.time` | 无 | `float` | 返回当前 Unix 时间戳 |
+| `time.ctime` | `[secs: float]` | `str` | 时间戳转可读字符串 |
+| `time.asctime` | `[t: int]` | `str` | struct_time 转字符串 |
+| `time.gmtime` | `[secs: float]` | `int` | 时间戳转 UTC struct_time（指针） |
+| `time.localtime` | `[secs: float]` | `int` | 时间戳转本地 struct_time（指针） |
+| `time.mktime` | `ptr: int` | `float` | struct_time 转时间戳 |
+| `time.strftime` | `format: str[, ptr: int]` | `str` | 格式化 struct_time |
+| `time.strptime` | `string: str, format: str` | `int` | 从字符串解析 struct_time |
+| `time.timezone` | 无 | `int` | 返回 UTC 偏移（秒） |
+| `time.tzname` | 无 | `int` | 返回时区名（元组指针） |
+
+### 5.10 结构化时间 (`struct_time.*`)
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `struct_time.cast` | `ptr: int` | `str` | 格式化为字符串 |
+| `struct_time.length` | `ptr: int` | `int` | 返回 9（struct_time 元素数） |
+| `struct_time.format` | `ptr: int` | `str` | 格式化 |
+| `struct_time.tm_year` | `ptr: int` | `int` | 年份 |
+| `struct_time.tm_mon` | `ptr: int` | `int` | 月份（1-12） |
+| `struct_time.tm_mday` | `ptr: int` | `int` | 日（1-31） |
+| `struct_time.tm_hour` | `ptr: int` | `int` | 小时（0-23） |
+| `struct_time.tm_min` | `ptr: int` | `int` | 分钟（0-59） |
+| `struct_time.tm_sec` | `ptr: int` | `int` | 秒（0-61） |
+| `struct_time.tm_wday` | `ptr: int` | `int` | 星期几（0=周一，6=周日） |
+| `struct_time.tm_yday` | `ptr: int` | `int` | 年中第几天（1-366） |
+| `struct_time.tm_isdst` | `ptr: int` | `int` | 是否夏令时 |
+
+### 5.11 数学 (`math.*`)
+
+所有数学函数通过 Python `math` 标准库实现。参数类型不匹配时 Python 层抛出异常（如 `ValueError`、`TypeError`）。
+
+#### 格式化与基础运算
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `math.format` | `number: int\|float, [accuracy: int]` | `str` | 格式化为 `".{accuracy}f"` 并去除尾随零（保留至少一位小数）。**`number` 非数字时抛出 `Target object is not a number`**；`accuracy` 非 `int` 时抛出 `The given accuracy must be int` |
+| `math.round` | `number: int\|float [, ndigits: int]` | 基础类型 | `round(number, ndigits)` |
+| `math.floordiv` | `x: int\|float, y: int\|float` | `int` | `x // y` |
+| `math.mod` | `a: int\|float, b: int\|float` | 基础类型 | `a % b` |
+| `math.abs` | `x: int\|float` | 基础类型 | `abs(x)` |
+| `math.max` | `a: int\|float, b: int\|float` | 基础类型 | `max(a, b)` |
+| `math.min` | `a: int\|float, b: int\|float` | 基础类型 | `min(a, b)` |
+
+#### 位运算
+
+所有位运算参数必须为 `int`。
+
+| 函数 | 对应运算 | 函数 | 对应运算 |
+|------|---------|------|---------|
+| `math.bit_and(a, b)` | `a & b` | `math.bit_or(a, b)` | `a \| b` |
+| `math.bit_xor(a, b)` | `a ^ b` | `math.bit_not(a)` | `~a` |
+| `math.left_shift(a, b)` | `a << b` | `math.right_shift(a, b)` | `a >> b` |
+
+#### 三角函数
+
+| 函数 | 参数类型 | 对应 Python | 异常 |
+|------|---------|------------|------|
+| `math.acos(x: float)` | `float` | `math.acos(x)` | `\|x\| > 1` 时抛出 `ValueError` |
+| `math.acosh(x: float)` | `float` | `math.acosh(x)` | `x < 1` 时抛出 `ValueError` |
+| `math.asin(x: float)` | `float` | `math.asin(x)` | `\|x\| > 1` 时抛出 `ValueError` |
+| `math.asinh(x: float)` | `float` | `math.asinh(x)` | — |
+| `math.atan(x: float)` | `float` | `math.atan(x)` | — |
+| `math.atan2(y: float, x: float)` | `float` | `math.atan2(y, x)` | — |
+| `math.atanh(x: float)` | `float` | `math.atanh(x)` | `\|x\| >= 1` 时抛出 `ValueError` |
+| `math.cos(x: float)` | `float` | `math.cos(x)` | — |
+| `math.cosh(x: float)` | `float` | `math.cosh(x)` | — |
+| `math.sin(x: float)` | `float` | `math.sin(x)` | — |
+| `math.sinh(x: float)` | `float` | `math.sinh(x)` | — |
+| `math.tan(x: float)` | `float` | `math.tan(x)` | — |
+| `math.tanh(x: float)` | `float` | `math.tanh(x)` | — |
+
+#### 指数与对数
+
+| 函数 | 参数类型 | 对应 Python | 异常 |
+|------|---------|------------|------|
+| `math.exp(x: float)` | `float` | `math.exp(x)` | — |
+| `math.expm1(x: float)` | `float` | `math.expm1(x)` | — |
+| `math.log(x: float [, base: float])` | `float` | `math.log(x, base)` | `x <= 0` 时抛出 `ValueError`；默认底数为 `e` |
+| `math.log10(x: float)` | `float` | `math.log10(x)` | `x <= 0` 时抛出 `ValueError` |
+| `math.log1p(x: float)` | `float` | `math.log1p(x)` | `x <= -1` 时抛出 `ValueError` |
+| `math.pow(x: float, y: float)` | `float` | `math.pow(x, y)` | — |
+| `math.powmod(x, y, mod: int)` | 基础类型 | `pow(x, y, mod)` | `mod == 0` 时抛出 `ValueError` |
+| `math.sqrt(x: float)` | `float` | `math.sqrt(x)` | `x < 0` 时抛出 `ValueError` |
+
+#### 取整与数论
+
+| 函数 | 参数类型 | 返回值 | 异常 |
+|------|---------|--------|------|
+| `math.ceil(x: float)` | `float` | `int` | — |
+| `math.floor(x: float)` | `float` | `int` | — |
+| `math.trunc(x: float)` | `float` | `int` | — |
+| `math.fabs(x: float)` | `float` | `float` | — |
+| `math.factorial(x: int)` | `int` | `int` | `x < 0` 或非整数时抛出 `ValueError` |
+| `math.fmod(x: float, y: float)` | `float` | `float` | `y == 0` 时抛出 `ValueError` |
+| `math.frexp(x: float)` | `float` | `int`（元组指针） | 返回 `(尾数, 指数)` 元组的指针 |
+| `math.fsum(ptr: int)` | `int`（切片指针） | `float` | 对切片元素精确求和。`ptr` 无效时抛出解引用异常 |
+| `math.modf(x: float)` | `float` | `int`（元组指针） | 返回 `(小数部分, 整数部分)` 元组的指针 |
+| `math.gcd(a: int, b: int)` | `int` | `int` | Python 3.5+ `math.gcd` |
+
+#### 常数与特殊函数
+
+| 函数 | 参数类型 | 返回值 | 说明 |
+|------|---------|--------|------|
+| `math.pi()` | 无 | `float` | 圆周率 π ≈ 3.141592653589793 |
+| `math.e()` | 无 | `float` | 自然常数 e ≈ 2.718281828459045 |
+| `math.degrees(x: float)` | `float` | `float` | 弧度转角度 |
+| `math.radians(x: float)` | `float` | `float` | 角度转弧度 |
+| `math.hypot(x: float, y: float)` | `float` | `float` | `sqrt(x² + y²)` |
+| `math.erf(x: float)` | `float` | `float` | 误差函数 |
+| `math.erfc(x: float)` | `float` | `float` | 互补误差函数 |
+| `math.gamma(x: float)` | `float` | `float` | Gamma 函数 Γ(x) |
+| `math.lgamma(x: float)` | `float` | `float` | `log(abs(gamma(x)))` |
+| `math.isinf(x: float)` | `float` | `bool` | `x` 是否为 ±∞ |
+| `math.isnan(x: float)` | `float` | `bool` | `x` 是否为 NaN |
+| `math.ldexp(x: float, i: int)` | `float, int` | `float` | `x * 2^i` |
+
+### 5.12 随机数 (`random.*`)
+
+基于 Mersenne Twister 随机数生成器（Python `random.Random`）。所有参数类型错误时 Python 层抛出异常（`ValueError`、`TypeError`）。`choice`/`sample`/`shuffle` 的序列指针无效时抛出解引用异常。
+
+| 函数 | 参数类型 | 返回值 | 说明与异常 |
+|------|---------|--------|-----------|
+| `random.random()` | 无 | `float` | 返回 `[0.0, 1.0)` 内的随机浮点数 |
+| `random.randint(a: int, b: int)` | `int, int` | `int` | 返回 `[a, b]` 内的随机整数。`a > b` 时 Python 抛出 `ValueError` |
+| `random.randrange(start: int, stop: int [, step: int])` | `int` | `int` | `random.randrange(start, stop, step)` |
+| `random.uniform(a: float, b: float)` | `float, float` | `float` | 返回 `[a, b]` 内的均匀分布浮点数 |
+| `random.choice(ptr: int)` | `int`（序列指针） | 基础类型 | `random.choice(deref(ptr))`。**空序列时抛出 `IndexError`** |
+| `random.sample(ptr: int, k: int)` | `int, int` | `int`（切片指针） | 从序列中不放回抽样 `k` 个元素，返回切片指针。**`k > len(seq)` 时抛出 `ValueError`** |
+| `random.shuffle(ptr: int)` | `int`（序列指针） | `bool` | 原地打乱序列，总是返回 `True` |
+| `random.seed(a: 基础类型)` | 基础类型 | `bool` | `random.seed(a)`，总是返回 `True` |
+| `random.getstate()` | 无 | `int`（元组指针） | 返回生成器内部状态的元组指针 |
+| `random.setstate(ptr: int)` | `int`（状态元组指针） | `bool` | 恢复生成器状态，总是返回 `True` |
+| `random.betavariate(alpha: float, beta: float)` | `float, float` | `float` | Beta 分布。`alpha <= 0` 或 `beta <= 0` 时抛出 `ValueError` |
+| `random.expovariate(lambd: float)` | `float` | `float` | 指数分布。`lambd <= 0` 时抛出 `ValueError` |
+| `random.gammavariate(alpha: float, beta: float)` | `float, float` | `float` | Gamma 分布。`alpha <= 0` 或 `beta <= 0` 时抛出 `ValueError` |
+| `random.gauss(mu: float, sigma: float)` | `float, float` | `float` | 正态/高斯分布。`sigma <= 0` 时抛出 `ValueError` |
+| `random.lognormvariate(mu: float, sigma: float)` | `float, float` | `float` | 对数正态分布 |
+| `random.normalvariate(mu: float, sigma: float)` | `float, float` | `float` | 正态分布 |
+| `random.paretovariate(alpha: float)` | `float` | `float` | Pareto 分布。`alpha <= 0` 时抛出 `ValueError` |
+| `random.triangular(low: float, high: float [, mode: float])` | `float` | `float` | 三角分布 |
+| `random.vonmisesvariate(mu: float, kappa: float)` | `float, float` | `float` | Von Mises 分布 |
+| `random.weibullvariate(alpha: float, beta: float)` | `float, float` | `float` | Weibull 分布。`alpha <= 0` 或 `beta <= 0` 时抛出 `ValueError` |
+
+### 5.13 JSON (`json.*`)
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `json.dumps` | `ptr: int` | `str` | `json.dumps(deref(ptr), indent=2, ensure_ascii=False)` 序列化。对象不可序列化时 Python 抛出 `TypeError` |
+| `json.fast_dumps` | `ptr: int` | `str` | `json.dumps(deref(ptr), ensure_ascii=False)` 快速序列化（无缩进） |
+| `json.loads` | `s: str` | `int` | `json.loads(s)` 反序列化，结果 `ref` 后返回指针。**JSON 格式不合法时抛出 `json.JSONDecodeError`** |
+| `json.fast_loads` | `s: str` | `int` | 同 `loads`，内部注册为 `_fast_loads` 实现 |
+| `json.fix_object` | `ptr: int` | `bool` | 修复 JSON 对象的 `__type__` 类型标记，返回 `True`。非 `dict` 时可能抛出异常 |
+
+### 5.14 二进制 ASCII (`binascii.*`)
+
+| 函数 | 参数类型 | 返回值 | 执行过程与异常 |
+|------|---------|--------|---------------|
+| `binascii.a2b_base64` | `s: str` | `int` | `base64.b64decode(s)`，结果通过 `ref` 注册并返回指针。**非法 Base64 输入时抛出 `binascii.Error`** |
+| `binascii.a2b_hex` | `s: str` | `int` | `binascii.unhexlify(s)`，结果注册为切片指针。**非法十六进制输入时抛出 `binascii.Error`** |
+| `binascii.b2a_base64` | `ptr: int` | `str` | `base64.b64encode(deref(ptr)).decode()` |
+| `binascii.b2a_hex` | `ptr: int` | `str` | `binascii.hexlify(deref(ptr)).decode()` |
+| `binascii.hexlify` | `ptr: int` | `str` | 同 `b2a_hex` |
+
+### 5.15 日期时间 (`datetime_*.*`)
+
+#### `datetime_datetime.*`
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `datetime_datetime.new` | `year, month, day[, hour, minute, second, microsecond]` | `int` | 创建 DateTime 对象 |
+| `datetime_datetime.now` | `[tz]` | `int` | 当前时间 |
+| `datetime_datetime.format` | `ptr: int` | `str` | 格式化 |
+| `datetime_datetime.combine` | `date_ptr, time_ptr` | `int` | 组合日期和时间 |
+| `datetime_datetime.ctime` | `ptr: int` | `str` | ctime 格式 |
+| `datetime_datetime.date` | `ptr: int` | `int` | 提取日期部分 |
+| `datetime_datetime.day` | `ptr: int` | `int` | 日 |
+| `datetime_datetime.fromordinal` | `ordinal: int` | `int` | 从序数创建 |
+| `datetime_datetime.fromtimestamp` | `ts: float` | `int` | 从时间戳创建 |
+| `datetime_datetime.hour` | `ptr: int` | `int` | 小时 |
+| `datetime_datetime.isocalendar` | `ptr: int` | `int` | ISO 日历（返回元组指针） |
+| `datetime_datetime.isoformat` | `ptr: int` | `str` | ISO 格式字符串 |
+| `datetime_datetime.isoweekday` | `ptr: int` | `int` | ISO 星期 |
+| `datetime_datetime.max` | 无 | `int` | 最大 DateTime |
+| `datetime_datetime.microsecond` | `ptr: int` | `int` | 微妙 |
+| `datetime_datetime.min` | 无 | `int` | 最小 DateTime |
+| `datetime_datetime.minute` | `ptr: int` | `int` | 分钟 |
+| `datetime_datetime.month` | `ptr: int` | `int` | 月份 |
+| `datetime_datetime.replace` | `ptr: int, ...` | `int` | 替换字段 |
+| `datetime_datetime.second` | `ptr: int` | `int` | 秒 |
+| `datetime_datetime.strftime` | `ptr: int, format: str` | `str` | 格式化为字符串 |
+| `datetime_datetime.strptime` | `s: str, format: str` | `int` | 从字符串解析 |
+| `datetime_datetime.time` | `ptr: int` | `int` | 提取时间部分 |
+| `datetime_datetime.timetuple` | `ptr: int` | `int` | 转 struct_time |
+| `datetime_datetime.today` | 无 | `int` | 今天的 DateTime |
+| `datetime_datetime.toordinal` | `ptr: int` | `int` | 转序数 |
+| `datetime_datetime.weekday` | `ptr: int` | `int` | 星期几 |
+| `datetime_datetime.greater` | `ptr1, ptr2` | `bool` | 大于比较 |
+| `datetime_datetime.less` | `ptr1, ptr2` | `bool` | 小于比较 |
+| `datetime_datetime.greater_equal` | `ptr1, ptr2` | `bool` | 大于等于 |
+| `datetime_datetime.less_equal` | `ptr1, ptr2` | `bool` | 小于等于 |
+| `datetime_datetime.equal` | `ptr1, ptr2` | `bool` | 等于 |
+| `datetime_datetime.add_delta` | `dt_ptr, delta_ptr` | `int` | 加 timedelta |
+| `datetime_datetime.remove_delta` | `dt_ptr, delta_ptr` | `int` | 减 timedelta |
+| `datetime_datetime.remove_datetime` | `ptr1, ptr2` | `int` | 两个 DateTime 相减（得 timedelta） |
+
+#### `datetime_date.*`
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `datetime_date.new` | `year, month, day` | `int` | 创建 Date 对象 |
+| `datetime_date.day` | `ptr: int` | `int` | 日 |
+| `datetime_date.month` | `ptr: int` | `int` | 月 |
+| `datetime_date.year` | `ptr: int` | `int` | 年 |
+| `datetime_date.add_delta` | `ptr, delta_ptr` | `int` | 加 timedelta |
+| `datetime_date.remove_delta` | `ptr, delta_ptr` | `int` | 减 timedelta |
+| `datetime_date.remove_date` | `ptr1, ptr2` | `int` | 日期相减（得 timedelta） |
+| （其他类似 `datetime_datetime` 的对应字段访问和比较函数） | | | |
+
+#### `datetime_time.*`
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `datetime_time.new` | `hour, minute, second[, microsecond]` | `int` | 创建 Time 对象 |
+| `datetime_time.hour` | `ptr: int` | `int` | 小时 |
+| `datetime_time.minute` | `ptr: int` | `int` | 分钟 |
+| `datetime_time.second` | `ptr: int` | `int` | 秒 |
+| `datetime_time.microsecond` | `ptr: int` | `int` | 微妙 |
+| （比较函数同上） | | | |
+
+#### `datetime_timedelta.*`
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `datetime_timedelta.new` | `[days, seconds, microseconds]` | `int` | 创建 TimeDelta |
+| `datetime_timedelta.days` | `ptr: int` | `int` | 天数 |
+| `datetime_timedelta.seconds` | `ptr: int` | `int` | 秒数 |
+| `datetime_timedelta.microseconds` | `ptr: int` | `int` | 微秒数 |
+| `datetime_timedelta.total_seconds` | `ptr: int` | `float` | 总秒数 |
+| `datetime_timedelta.add` | `ptr1, ptr2` | `int` | 加法 |
+| `datetime_timedelta.remove` | `ptr1, ptr2` | `int` | 减法 |
+| `datetime_timedelta.times` | `ptr, n` | `int` | 乘法 |
+| `datetime_timedelta.divide` | `ptr, n` | `int` | 除法 |
+| `datetime_timedelta.negative` | `ptr` | `int` | 取负 |
+| `datetime_timedelta.abs` | `ptr` | `int` | 绝对值 |
+| （比较函数同上） | | | |
+
+### 5.16 Base64 (`base64.*`)
+
+| 函数 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `base64.b16decode` | `s: str` | `int` | Base16 解码（字节切片指针） |
+| `base64.b16encode` | `ptr: int` | `str` | Base16 编码 |
+| `base64.b32decode` | `s: str` | `int` | Base32 解码 |
+| `base64.b32encode` | `ptr: int` | `str` | Base32 编码 |
+| `base64.b64decode` | `s: str` | `int` | Base64 解码 |
+| `base64.b64encode` | `ptr: int` | `str` | Base64 编码 |
+| `base64.standard_b64decode` | `s: str` | `int` | 标准 Base64 解码 |
+| `base64.standard_b64encode` | `ptr: int` | `str` | 标准 Base64 编码 |
+| `base64.urlsafe_b64decode` | `s: str` | `int` | URL 安全 Base64 解码 |
+| `base64.urlsafe_b64encode` | `ptr: int` | `str` | URL 安全 Base64 编码 |
+
+### 5.17 通用时间 (`common_time.*`)
+
+（具体函数列表从代码中推导——与 `time.*` 模块交互的辅助函数）
+
+### 5.18 命令执行上下文 (`command.*`)
+
+这些函数操作命令执行上下文——`{command, ...}` 语句执行时所使用的执行者、位置和维度。上下文数据在 `Context` 对象中维护。
+
+#### `command.set_executor(executor: str) → bool`
+
+**执行过程**：
+1. 校验 `executor` 是否为 `str` 类型：若不是，抛出 `The given argument must be str`
+2. 将上下文中的 `_executor` 字段更新为 `executor`
+3. 返回 `True`
+
+**异常**：`The given argument must be str` — `executor` 非字符串。
+
+#### `command.get_executor() → str`
+
+**执行过程**：直接返回当前上下文中保存的 `_executor` 值。初始默认为空字符串 `""`。
+
+#### `command.set_position(posx: float, posy: float, posz: float) → bool`
+
+**执行过程**：
+1. 逐个校验 `posx`/`posy`/`posz` 是否为非布尔值的数字（`int` 或 `float`）：若任一不是，抛出 `Given posx/posy/posz must be tuple`（注：实际错误消息字面为此，但语义为"必须为数字"）
+2. 将上下文中的 `_position` 更新为 `(float(posx), float(posy), float(posz))`
+3. 返回 `True`
+
+**异常**：类型错误 — 任一坐标参数不是数字类型。
+
+#### `command.get_position() → int`
+
+**执行过程**：返回 `self._manager.ref(self._position)`——当前坐标元组的指针。
+
+#### `command.set_dimension(dim_id: int) → bool`
+
+**执行过程**：
+1. 校验 `dim_id` 是否为非布尔值的 `int`：若不是，抛出 `Given dimension ID must be int`
+2. 根据 `dim_id` 更新维度名称：`0 → "overworld"`、`1 → "nether"`、`2 → "the_end"`、其他 → `"dm{dim_id}"`
+3. 返回 `True`
+
+**异常**：`Given dimension ID must be int` — `dim_id` 非整数（含 `bool`）。
+
+#### `command.get_dimension() → int`
+
+**执行过程**：返回当前上下文中保存的 `_dim_id`。初始默认为 `0`（主世界）。
+
+#### `command.dimension_name() → str`
+
+**执行过程**：返回当前上下文中保存的 `_dim_name`。初始默认为 `"overworld"`。
+
+#### `command.fast_set(selector_or_id: str [, is_selector: bool]) → bool`
+
+**执行过程**：
+1. 若 `is_selector` 为假（默认 `True`）：直接将 `selector_or_id` 作为实体 ID，调用 `set_executor`、通过 `CreatePos` 获取脚部坐标并调用 `set_position`、通过 `CreateDimension` 获取维度并调用 `set_dimension`
+2. 若 `is_selector` 为真：以当前执行者（若无则以存档本身）为参考点，调用 `GetEntitiesBySelector(selector_or_id)` 解析目标选择器
+3. 若解析结果为空（`None`）：抛出 `No target is matched`
+4. 若解析到多个实体：抛出 `Only can match one entity, but got [...]`
+5. 以解析到的唯一实体 ID 执行步骤 1 的更新操作
+6. 返回 `True`
+
+**异常**：
+- `No target is matched` — 目标选择器无匹配实体
+- `Only can match one entity, but got [...]` — 目标选择器匹配到多个实体
+- 参数类型错误 — `selector_or_id` 非字符串
+
+> **注意**：`command.fast_set` 会**同时修改**执行者、执行位置和维度，是一个原子性的上下文切换操作。后续 `{command, ...}` 语句将在新上下文中执行。
+
+### 5.19 通用系统 (`general.*`)
+
+依赖 `ServerSystem` 实例的动态函数。**公共异常**：所有函数在 `ServerSystem` 不可用时抛出 Python 层 `AttributeError`；参数类型不匹配时抛出对应异常。
+
+#### 事件
+
+| 函数 | 参数类型 | 返回值 | 说明 |
+|------|---------|--------|------|
+| `general.BroadcastEvent` | `event_name: str, data: int`（字典指针） | — | 广播自定义事件 |
+| `general.BroadcastToAllClient` | `event_name: str, data: int`（字典指针） | — | 向所有客户端广播 |
+| `general.GetEngineNamespace` | 无 | `str` | 获取引擎命名空间字符串 |
+| `general.GetEngineSystemName` | 无 | `str` | 获取引擎系统名称 |
+| `general.NotifyToClient` | `player_id: str, event_name: str, data: int`（字典指针） | — | 通知单个客户端 |
+| `general.NotifyToMultiClients` | `player_ids: int`（切片指针）, `event_name: str, data: int` | — | 通知多个客户端 |
+
+#### 本地设备
+
+| 函数 | 参数类型 | 返回值 | 说明 |
+|------|---------|--------|------|
+| `general.GetMinecraftVersion` | 无 | `str` | 获取当前 Minecraft 版本号 |
+| `general.GetPlatform` | 无 | `int` | 获取当前平台标识（返回值含义见网易文档） |
+
+#### 工具
+
+| 函数 | 参数类型 | 返回值 | 说明 |
+|------|---------|--------|------|
+| `general.GetHostPlayerId` | 无 | `str` | 获取当前世界房主的玩家 ID |
+| `general.GetServerTickTime` | 无 | `int` | 获取服务器当前 Tick 时间 |
+
+### 5.20 世界 (`world.*`)
+
+依赖 `ServerSystem` 实例的动态函数，通过 `GetEngineCompFactory()` 调用网易模组 API。**公共异常**：`ServerSystem` 不可用或 API 组件创建失败时抛出 Python 层异常；参数类型不匹配时抛出对应异常。
+
+#### 地图
+
+| 函数 | 说明 |
+|------|------|
+| `world.CanSee` | 检查两个位置是否可见 |
+| `world.CheckBlockToPos` | 检查位置到方块 |
+| `world.CheckChunkState` | 检查区块状态 |
+| `world.CreateExplosion` | 创建爆炸 |
+| `world.GetAllAreaKeys` | 获取所有区域键 |
+| `world.GetBiomeInfo` | 获取生物群系信息 |
+| `world.GetBiomeName` | 获取生物群系名 |
+| `world.GetBlockLightLevel` | 获取方块光照等级 |
+| `world.GetChunkEntites` | 获取区块实体 |
+| `world.GetChunkMaxPos` | 获取区块最大位置 |
+| `world.GetChunkMinPos` | 获取区块最小位置 |
+| `world.GetChunkMobNum` | 获取区块生物数量 |
+| `world.GetEntitiesAround` | 获取周围实体 |
+| `world.GetEntitiesAroundByType` | 按类型获取周围实体 |
+| `world.GetEntitiesInSquareArea` | 获取矩形区域内实体 |
+| `world.GetLevelId` | 获取存档 ID |
+| `world.GetLoadedChunks` | 获取已加载区块 |
+| `world.GetSpawnPosition` | 获取出生点 |
+| `world.GetStructureSize` | 获取结构大小 |
+| `world.IsChunkGenerated` | 区块是否已生成 |
+| `world.IsSlimeChunk` | 是否为史莱姆区块 |
+| `world.LocateNeteaseFeatureRule` | 定位网易特征规则 |
+| `world.LocateStructureFeature` | 定位结构特征 |
+| `world.MayPlace` | 检查是否可放置 |
+| `world.MayPlaceOn` | 检查是否可放置于 |
+| `world.MirrorDimension` | 镜像维度 |
+| `world.PlaceFeature` | 放置特征 |
+| `world.PlaceNeteaseLargeFeature` | 放置网易大型特征 |
+| `world.SetBiomeByPos` | 按位置设置群系 |
+| `world.SetBiomeByPosList` | 按位置列表设置群系 |
+| `world.SetBiomeByVolume` | 按体积设置群系 |
+| `world.SetBiomeInfo` | 设置群系信息 |
+| `world.SetMergeSpawnItemRadius` | 设置掉落物合并半径 |
+
+#### 实体管理
+
+| 函数 | 说明 |
+|------|------|
+| `world.CreateEngineEntityByTypeStr` | 按类型字符串创建引擎实体 |
+| `world.CreateEntityAOI` | 创建实体 AOI |
+| `world.CreateExperienceOrb` | 创建经验球 |
+| `world.CreateProjectileEntity` | 创建弹射物 |
+| `world.DeleteEntityAOI` | 删除实体 AOI |
+| `world.DestroyEntity` | 销毁实体 |
+| `world.GetDroppedItem` | 获取掉落物 |
+| `world.GetEngineActor` | 获取引擎 Actor |
+| `world.GetPlayerList` | 获取玩家列表 |
+| `world.IsEntityAlive` | 实体是否存活 |
+| `world.KillEntity` | 杀死实体 |
+| `world.SpawnResources` | 生成资源 |
+| `world.SpawnResourcesSilkTouched` | 精准采集生成资源 |
+| `world.getEntitiesOrBlockFromRay` | 射线获取实体/方块 |
+
+#### 方块管理
+
+| 函数 | 说明 |
+|------|------|
+| `world.GetBlockClip` | 获取方块裁剪 |
+| `world.GetBlockCollision` | 获取方块碰撞 |
+| `world.GetBlockNew` | 获取方块信息 |
+| `world.GetLiquidBlock` | 获取液体方块 |
+| `world.GetTopBlockHeight` | 获取顶部方块高度 |
+
+#### 其他
+
+| 类别 | 函数 | 说明 |
+|------|------|------|
+| 生物生成 | `world.GetEntityLimit` | 获取实体限制 |
+| 生物生成 | `world.SetEntityLimit` | 设置实体限制 |
+| 方块组合 | `world.RegisterBlockPatterns` | 注册方块模式 |
+| 天气 | `world.IsRaining` | 是否下雨 |
+| 天气 | `world.IsThunder` | 是否打雷 |
+| 游戏规则 | `world.GetLevelGravity` | 获取重力 |
+| 游戏规则 | `world.GetPistonMaxInteractionCount` | 获取活塞最大交互数 |
+| 游戏规则 | `world.SetHurtCD` | 设置伤害 CD |
+| 游戏规则 | `world.SetLevelGravity` | 设置重力 |
+| 游戏规则 | `world.SetPistonMaxInteractionCount` | 设置活塞最大交互数 |
+| 指令 | `world.SetCommand` | 设置命令 |
+
+### 5.21 实体 (`entity.*`)
+
+依赖 `ServerSystem` 实例的动态函数，通过 `GetEngineCompFactory()` 调用网易模组 API。**公共异常**：实体 ID 无效或组件创建失败时抛出 Python 层异常；参数类型不匹配时抛出对应异常。
+
+#### 实体类型
+
+| 函数 | 说明 |
+|------|------|
+| `entity.GetEngineType` | 获取引擎类型 |
+| `entity.GetEngineTypeStr` | 获取引擎类型字符串 |
+| `entity.GetEntityDefinitions` | 获取实体定义 |
+| `entity.GetEntityNBTTags` | 获取实体 NBT 标签 |
+
+#### 属性
+
+| 函数 | 说明 |
+|------|------|
+| `entity.AddModifier` | 添加属性修饰符 |
+| `entity.ChangeEntityDimension` | 改变实体维度 |
+| `entity.GetAllComponentsName` | 获取所有组件名 |
+| `entity.GetAllModifiers` | 获取所有修饰符 |
+| `entity.GetAttrMaxValue` | 获取属性最大值 |
+| `entity.GetAttrValue` | 获取属性值 |
+| `entity.GetCurrentAirSupply` | 获取当前氧气 |
+| `entity.GetDeathTime` | 获取死亡时间 |
+| `entity.GetEntitiesBySelector` | 按选择器获取实体 |
+| `entity.GetEntityDamage` | 获取实体伤害 |
+| `entity.GetEntityDimensionId` | 获取实体维度 ID |
+| `entity.GetEntityFallDistance` | 获取掉落距离 |
+| `entity.GetEntityLinksTag` | 获取实体链接标签 |
+| `entity.GetEntityOwner` | 获取实体主人 |
+| `entity.GetFootPos` | 获取脚部位置 |
+| `entity.GetGravity` | 获取重力 |
+| `entity.GetLoadActors` | 获取加载的 Actor |
+| `entity.GetMarkVariant` | 获取标记变种 |
+| `entity.GetMaxAirSupply` | 获取最大氧气 |
+| `entity.GetMobColor` | 获取生物颜色 |
+| `entity.GetMobStrength` | 获取生物强度 |
+| `entity.GetMobStrengthMax` | 获取生物最大强度 |
+| `entity.GetName` | 获取名称 |
+| `entity.GetPos` | 获取位置 |
+| `entity.GetRot` | 获取旋转 |
+| `entity.GetSize` | 获取大小 |
+| `entity.GetTradeLevel` | 获取交易等级 |
+| `entity.GetTypeFamily` | 获取类型族 |
+| `entity.GetUnitBubbleAirSupply` | 获取气泡氧气单位 |
+| `entity.GetVariant` | 获取变种 |
+| `entity.HasChest` | 是否有箱子 |
+| `entity.HasComponent` | 是否有组件 |
+| `entity.HasModifier` | 是否有修饰符 |
+| `entity.HasSaddle` | 是否有鞍 |
+| `entity.IsAngry` | 是否愤怒 |
+| `entity.IsBaby` | 是否幼年 |
+| `entity.IsConsumingAirSupply` | 是否消耗氧气 |
+| `entity.IsIllagerCaptain` | 是否为灾厄队长 |
+| `entity.IsNaturallySpawned` | 是否自然生成 |
+| `entity.IsOutOfControl` | 是否失控 |
+| `entity.IsPregnant` | 是否怀孕 |
+| `entity.IsSheared` | 是否被剪毛 |
+| `entity.IsSitting` | 是否坐下 |
+| `entity.IsTamed` | 是否驯服 |
+
+（对应的 `Set*`、`Reset*` 函数可从前缀推断，包括 `SetAngry`、`SetAsAdult`、`SetAttrMaxValue`、`SetAttrValue`、`SetChest`、`SetCurrentAirSupply`、`SetEntityLookAtPos`、`SetEntityOwner`、`SetFootPos`、`SetGravity`、`SetMarkVariant`、`SetMaxAirSupply`、`SetMobColor`、`SetMobStrength`、`SetMobStrengthMax`、`SetName`、`SetOutOfControl`、`SetPersistent`、`SetPos`、`SetRecoverTotalAirSupplyTime`、`SetRot`、`SetSheared`、`SetSitting`、`SetSize`、`SetTradeLevel`、`SetVariant` 等）
+
+#### 行为
+
+| 函数 | 说明 |
+|------|------|
+| `entity.GetAttackTarget` | 获取攻击目标 |
+| `entity.GetBlockControlAi` | 获取 AI 控制状态 |
+| `entity.GetComponents` | 获取组件 |
+| `entity.GetJumpPower` | 获取跳跃力度 |
+| `entity.GetLeashHolder` | 获取拴绳持有者 |
+| `entity.GetMotion` | 获取运动向量 |
+| `entity.GetOwnerId` | 获取主人 ID |
+| `entity.GetStepHeight` | 获取步高 |
+| `entity.ImmuneDamage` | 免疫伤害 |
+| `entity.IsEating` | 是否进食 |
+| `entity.IsEntityOnFire` | 是否着火 |
+| `entity.IsLootDropped` | 是否掉落物品 |
+| `entity.IsPersistent` | 是否持久 |
+| `entity.IsRoaring` | 是否咆哮 |
+| `entity.IsStunned` | 是否眩晕 |
+
+（对应 Setter 包括 `SetActorCollidable`、`SetActorPushable`、`SetAttackTarget`、`SetBlockControlAi`、`SetEntityOnFire`、`SetEntityTamed`、`SetJumpPower`、`SetLeashHolder`、`SetLootDropped`、`SetMobKnockback`、`SetMotion`、`SetPersistence`、`SetStepHeight` 等）
+
+#### 状态效果
+
+| 函数 | 说明 |
+|------|------|
+| `entity.AddEffectToEntity` | 添加状态效果 |
+| `entity.GetAllEffects` | 获取所有状态效果 |
+| `entity.HasEffect` | 是否有状态效果 |
+| `entity.RemoveEffectFromEntity` | 移除状态效果 |
+
+#### 背包
+
+| 函数 | 说明 |
+|------|------|
+| `entity.GetEntityItem` | 获取实体物品 |
+| `entity.GetEquItemEnchant` | 获取装备附魔 |
+| `entity.GetEquItemModEnchant` | 获取装备自定义附魔 |
+
+#### 自定义数据
+
+| 函数 | 说明 |
+|------|------|
+| `entity.CleanExtraData` | 清理额外数据 |
+| `entity.GetExtraData` | 获取额外数据 |
+| `entity.GetWholeExtraData` | 获取全部额外数据 |
+| `entity.SaveExtraData` | 保存额外数据 |
+| `entity.SetExtraData` | 设置额外数据 |
+
+#### 标签
+
+| 函数 | 说明 |
+|------|------|
+| `entity.AddEntityTag` | 添加标签 |
+| `entity.EntityHasTag` | 是否有标签 |
+| `entity.GetEntityTags` | 获取标签 |
+| `entity.RemoveEntityTag` | 移除标签 |
+
+#### 其他
+
+| 函数 | 说明 |
+|------|------|
+| `entity.GetAuxValue` | 获取附加值 |
+| `entity.GetSourceEntityId` | 获取来源实体 ID（弹射物） |
+| `entity.GetOrbExperience` | 获取经验球经验值 |
+| `entity.SetOrbExperience` | 设置经验球经验值 |
+| `entity.PromoteToIllagerCaptain` | 提升为灾厄队长 |
+| `entity.RemoveModifier` | 移除修饰符 |
+| `entity.ResetAttackTarget` | 重置攻击目标 |
+| `entity.ResetMotion` | 重置运动 |
+| `entity.ResetStepHeight` | 重置步高 |
+| `entity.ResetToDefaultValue` | 重置为默认值 |
+| `entity.ResetToMaxValue` | 重置为最大值 |
+| `entity.UpdateModifier` | 更新修饰符 |
+
+### 5.22 玩家 (`player.*`)
+
+依赖 `ServerSystem` 实例的动态函数，通过 `GetEngineCompFactory()` 调用网易模组 API。**公共异常**：玩家 ID 无效或组件创建失败时抛出 Python 层异常；参数类型不匹配时抛出对应异常。
+
+#### 属性
+
+| 函数 | 说明 |
+|------|------|
+| `player.GetPlayerExp` | 获取玩家经验值 |
+| `player.GetPlayerHunger` | 获取玩家饥饿值 |
+| `player.GetPlayerTotalExp` | 获取玩家总经验 |
+| `player.SetPlayerHunger` | 设置玩家饥饿值 |
+| `player.SetPlayerPrefixAndSuffixName` | 设置前后缀名 |
+| `player.SetPlayerTotalExp` | 设置玩家总经验 |
+
+#### 行为
+
+| 函数 | 说明 |
+|------|------|
+| `player.ChangePlayerDimension` | 改变玩家维度 |
+| `player.ChangePlayerFlyState` | 改变飞行状态 |
+| `player.GetPlayerIsFishing` | 是否钓鱼 |
+| `player.GetPlayerRespawnPos` | 获取重生点 |
+| `player.IsPlayerCanFly` | 是否可以飞行 |
+| `player.IsPlayerFlying` | 是否正在飞行 |
+| `player.SetBanPlayerFishing` | 禁止钓鱼 |
+| `player.SetPickUpArea` | 设置拾取范围 |
+| `player.SetPlayerAttackSpeedAmplifier` | 设置攻击速度增幅 |
+| `player.SetPlayerMotion` | 设置玩家运动 |
+| `player.SetPlayerRespawnPos` | 设置重生点 |
+| `player.isSneaking` | 是否潜行 |
+| `player.isSwimming` | 是否游泳 |
+
+#### 背包
+
+| 函数 | 说明 |
+|------|------|
+| `player.AddEnchantToInvItem` | 给背包物品添加附魔 |
+| `player.AddModEnchantToInvItem` | 给背包物品添加自定义附魔 |
+| `player.ChangePlayerItemTipsAndExtraId` | 修改物品提示和额外 ID |
+| `player.ChangeSelectSlot` | 切换选中槽 |
+| `player.GetInvItemEnchantData` | 获取物品附魔数据 |
+| `player.GetInvItemModEnchantData` | 获取物品自定义附魔数据 |
+| `player.GetPlayerFishHookEntity` | 获取鱼钩实体 |
+| `player.GetPlayerFishItem` | 获取钓鱼物品 |
+| `player.GetPlayerItem` | 获取玩家物品 |
+| `player.GetSelectSlotId` | 获取选中槽 ID |
+| `player.RemoveEnchantToInvItem` | 移除物品附魔 |
+| `player.RemoveModEnchantToInvItem` | 移除物品自定义附魔 |
+| `player.SetInvItemExchange` | 交换物品 |
+
+#### 游戏模式
+
+| 函数 | 说明 |
+|------|------|
+| `player.GetPlayerGameType` | 获取游戏模式 |
+| `player.SetPlayerGameType` | 设置游戏模式 |
+
+#### 权限
+
+| 函数 | 说明 |
+|------|------|
+| `player.GetPlayerAbilities` | 获取玩家能力 |
+| `player.GetPlayerOperation` | 获取玩家操作权限 |
+| `player.SetAttackMobsAbility` | 设置攻击生物权限 |
+| `player.SetAttackPlayersAbility` | 设置攻击玩家权限 |
+| `player.SetBuildAbility` | 设置建造权限 |
+| `player.SetMineAbility` | 设置挖掘权限 |
+| `player.SetOpenContainersAbility` | 设置打开容器权限 |
+| `player.SetOperateDoorsAndSwitchesAbility` | 设置操作门和开关权限 |
+| `player.SetOperatorCommandAbility` | 设置操作员命令权限 |
+| `player.SetPermissionLevel` | 设置权限等级 |
+| `player.SetPlayerMute` | 设置禁言 |
+| `player.SetTeleportAbility` | 设置传送权限 |
+
+### 5.23 方块 (`block.*`)
+
+依赖 `ServerSystem` 实例的动态函数，通过 `GetEngineCompFactory()` 调用网易模组 API。**公共异常**：方块位置无效或组件创建失败时抛出 Python 层异常；参数类型不匹配时抛出对应异常。
+
+#### 方块状态与附加值
+
+| 函数 | 说明 |
+|------|------|
+| `block.GetBlockStates` | 获取方块状态 |
+
+#### 方块实体
+
+| 函数 | 说明 |
+|------|------|
+| `block.ExecuteCommandBlock` | 执行命令方块 |
+| `block.GetBlockEntityData` | 获取方块实体数据 |
+| `block.GetBlockTileEntityCustomData` | 获取方块实体自定义数据 |
+| `block.GetBlockTileEntityWholeCustomData` | 获取全部自定义数据 |
+| `block.GetCommandBlock` | 获取命令方块信息 |
+| `block.GetFrameItem` | 获取物品展示框物品 |
+| `block.GetFrameRotation` | 获取物品展示框旋转 |
+| `block.SetCommandBlock` | 设置命令方块 |
+| `block.SetFrameRotation` | 设置物品展示框旋转 |
+
+#### 容器
+
+| 函数 | 说明 |
+|------|------|
+| `block.GetBrewingStandSlotItem` | 获取酿造台槽物品 |
+| `block.GetChestBoxSize` | 获取箱子大小 |
+| `block.GetChestPairedPosition` | 获取箱子配对位置 |
+| `block.GetContainerItem` | 获取容器物品 |
+| `block.GetContainerSize` | 获取容器大小 |
+| `block.GetEnderChestItem` | 获取末影箱物品 |
+| `block.GetInputSlotItem` | 获取输入槽物品 |
+| `block.GetOutputSlotItem` | 获取输出槽物品 |
+| `block.SetChestBoxItemExchange` | 设置箱子物品交换 |
+
+#### 红石
+
+| 函数 | 说明 |
+|------|------|
+| `block.GetBlockPoweredState` | 获取方块充能状态 |
+| `block.GetStrength` | 获取红石信号强度 |
+
+#### 告示牌
+
+| 函数 | 说明 |
+|------|------|
+| `block.GetSignBlockText` | 获取告示牌文本 |
+| `block.GetSignTextStyle` | 获取告示牌文本样式 |
+| `block.SetSignBlockText` | 设置告示牌文本 |
+| `block.SetSignTextStyle` | 设置告示牌文本样式 |
+
+#### 床
+
+| 函数 | 说明 |
+|------|------|
+| `block.GetBedColor` | 获取床颜色 |
+| `block.SetBedColor` | 设置床颜色 |
+
+### 5.24 物品 (`item.*`)
+
+依赖 `ServerSystem` 实例的动态函数，通过 `GetEngineCompFactory()` 调用网易模组 API。**公共异常**：物品实例无效或组件创建失败时抛出 Python 层异常；参数类型不匹配时抛出对应异常。
+
+| 函数 | 说明 |
+| `item.GetAllEnchantsInfo` | 获取所有附魔信息 |
+| `item.GetItemDurability` | 获取物品耐久 |
+| `item.GetItemInfoByBlockName` | 通过方块名获取物品信息 |
+| `item.GetItemMaxDurability` | 获取物品最大耐久 |
+| `item.SetItemDurability` | 设置物品耐久 |
+| `item.GetFishingLineColor` | 获取鱼线颜色 |
+| `item.GetFishingLineMax` | 获取鱼线最大长度 |
+| `item.SetFishingLineColor` | 设置鱼线颜色 |
+| `item.SetFishingLineMax` | 设置鱼线最大长度 |
+
+### 5.25 杂项工具 (`utils.*`)
+
+#### `utils.texture_by_keyword(keyword: str [, page_split: bool]) → int`
+
+**执行过程**：
+1. 将 `keyword` 去除首尾空白并转为小写
+2. 遍历所有已知材质贴图路径（`CONST_ALL_TEXTURES` 列表），筛选出路径名中包含 `keyword` 的条目
+3. 若 `page_split` 为真（默认）：将匹配条目的 `keyword` 部分用颜色代码 `§c...§8` 包裹作为键，原路径作为值，构造为映射
+4. 若 `page_split` 为假：匹配条目以切片形式收集
+5. 将结果注册为对象并返回指针
+
+**异常**：`keyword` 非 `str` 时 Python `strip()`/`lower()` 抛出 `AttributeError`。
+
+#### `utils.add_ench(entity_id: str, pos_type: int, slot_pos: int, ench_id: int, ench_level: int) → bool`
+
+**执行过程**：
+1. 通过 `CreateEngineType(entity_id).GetEngineType()` 获取实体类型，若失败则返回 `False`
+2. 判断实体是否为玩家：`entity_type == EntityType.Player`
+3. 根据是否为玩家，调用 `GetPlayerItem` 或 `GetEntityItem` 获取指定槽位的物品；若物品为 `None` 则返回 `False`
+4. 获取物品的 `userData.ench` 附魔列表（不存在则初始化为空列表）
+5. 遍历附魔列表查找目标 `ench_id`：若已存在则更新等级；若不存在则追加新附魔条目
+6. 将修改后的 `userData` 写回物品，清除 `enchantData` 缓存
+7. 若为玩家背包物品：先通过 `SetInvItemNum` 清空槽位，再通过 `SpawnItemToPlayerInv` 放回
+8. 若为实体物品：通过 `SetEntityItem` 写回
+9. 返回操作结果（`bool`）
+
+**参数说明**：
+- `entity_id: str` — 目标实体的唯一 ID
+- `pos_type: int` — `ItemPosType` 枚举值，指示物品位置类型（如背包、盔甲槽等）
+- `slot_pos: int` — 物品在指定位置类型中的槽位索引
+- `ench_id: int` — 原版附魔 ID（如锋利、耐久等）
+- `ench_level: int` — 附魔等级
+
+**异常**：参数类型不匹配时可能抛出 Python 层异常。实体不存在或物品获取失败时返回 `False`（非异常）。
+
+#### `utils.del_ench(entity_id: str, pos_type: int, slot_pos: int, ench_id: int) → bool`
+
+**执行过程**：
+1. 同 `add_ench` 获取实体类型和指定槽位的物品
+2. 获取物品的附魔列表，查找目标 `ench_id`
+3. 若找到：从列表中移除该附魔条目；若移除后列表为空且 `ench` 键存在，删除该键
+4. 将修改写回物品并更新到实体/玩家背包
+5. 若未找到目标附魔：返回 `False`
+
+**异常**：同 `add_ench`，附魔不存在时返回 `False`。
+
+#### `utils.async_run_func(delay: int, func_name: str, *args: 基础类型) → bool`
+
+别名：`gofn`
+
+**执行过程**：
+1. 保存当前命令执行上下文（执行者 ID）
+2. 构造回调函数：恢复保存的上下文 → 通过 `command.fast_set` 设置执行者 → 调用 `_callback(func_name, args)` 执行自定义函数 → 恢复原上下文
+3. 将回调函数提交到 `GameTickTimer`，安排在 `delay` 个游戏刻后执行
+4. 返回 `True`
+
+**异常**：
+- `delay < 0`：`GameTickTimer.schedule` 抛出 `Can not schedule a delay in the past`
+- `delay == 0`：回调函数在当前刻**立即同步执行**（非延迟）
+
+**注意**：
+- `*args` 为可变参数，传给自定义函数的参数列表
+- 函数执行时上下文会临时切换到原执行者，执行完毕后恢复
+- `GameTickTimer` 在每个游戏刻 (`OnSimTickServerEvent`) 消费到期的回调
+
+#### `utils.async_run_cmd(delay: int, command: str) → bool`
+
+别名：`gocmd`
+
+**执行过程**：
+1. 保存当前命令执行上下文（执行者 ID）
+2. 构造回调函数：恢复保存的上下文 → 通过 `command.fast_set` 设置执行者 → 调用游戏交互接口执行 `command` → 恢复原上下文
+3. 将回调函数提交到 `GameTickTimer`，安排在 `delay` 个游戏刻后执行
+4. 返回 `True`
+
+**异常**：同 `async_run_func`。`delay < 0` 时抛异常；`delay == 0` 时立即同步执行。
+
+**注意**：与 `{command, ...}` 语句不同，此函数延迟执行的命令在回调时上下文已恢复到调用时的状态，且命令执行结果（成功次数）被忽略。
+
+#### GameTickTimer 内部机制
+
+```
+schedule(ticks, callback):
+  if ticks < 0: raise Exception
+  if ticks == 0: callback(); return
+  将 (current_base + ticks, seq, callback) 推入最小堆
+
+on_tick:
+  current_base += 1
+  消费所有 heap[0][0] <= current_base 的回调
+```
+
+> **运行时异常捕获**：`utils.async_run_func` 和 `utils.async_run_cmd` 的回调函数执行时，若内部抛出异常，异常会被 `GameTickTimer._consume` 中的 `try/except Exception: pass` **静默捕获并丢弃**。这意味着延迟执行的函数或命令中的运行时错误**不会**导致程序终止或产生可见的错误信息。
+
+---
+
+## 6. 附录
+
+### 6.1 运算符优先级总表
+
+从高到低：
+
+| 优先级 | 运算符 | 结合性 | 说明 |
+|--------|--------|--------|------|
+| 1 (最高) | `()` | — | 圆括号分组 |
+| 2 | `int()` `bool()` `float()` `str()` | — | 强制类型转换 |
+| 3 | `{ref,...}` `{selector,...}` `{score,...}` `{command,...}` `{func,...}` | — | 花括号语句 |
+| 4 | `not` | 右结合 | 逻辑取反 |
+| 5 | `*` `/` | 左结合 | 乘法、除法 |
+| 6 | `+` `-` | 左结合 | 加法、减法 |
+| 7 | `<` `>` `<=` `>=` `==` `!=` `in` | 不可连用 | 比较与成员检查 |
+| 8 | `and` | 左结合 | 逻辑与（短路） |
+| 9 (最低) | `or` | 左结合 | 逻辑或（短路） |
+
+### 6.2 字节码指令速查表
+
+> 完整指令集（含操作数、子类型枚举、栈变化）见 [4.4 字节码指令集](#44-字节码指令集)。
+
+| 操作码 | 值 | 操作数 | 栈变化 | 说明 |
+|--------|---|--------|--------|------|
+| `LOAD_CONST` | 0 | `C: const` | `→ val` | 将常量 C 压入栈顶 |
+| `LOAD_VALUE` | 1 | `I: var_index` | `→ variables[I]` | 将变量值压栈 |
+| `STORE_VALUE` | 2 | `I: var_index` | `val →` | 弹出栈顶存入变量 |
+| `LOOP_JUMP` | 3 | `I: var_index, J: jump_to` | — | 比较栈顶两个值，控制循环跳转 |
+| `LOOP_CHECK` | 4 | `T: check_type` | `val →` 或 `val1, val2 →` | 循环校验（类型检查/栈清理） |
+| `DIRECT_JUMP` | 5 | `J: jump_to` | — | 无条件跳转到 J |
+| `FALSE_JUMP` | 6 | `J: jump_to` | `val →` | 若栈顶为假则跳转 |
+| `TRUE_JUMP` | 7 | `J: jump_to` | `val →` | 若栈顶为真则跳转 |
+| `HANDLE_COMPUTE` | 8 | `N: pop_len, S: sub_type` | `v1, ..., vN → result` | N 元算术运算 |
+| `HANDLE_COMPARE` | 9 | `S: sub_type` | `a, b → bool` | 二元比较 |
+| `HANDLE_LOGIC_ANDOR` | 10 | `S: sub_type` | `a, b → bool` (结果复制) | 逻辑与/或（短路用） |
+| `HANDLE_LOGIC_INNOT` | 11 | `S: sub_type` | `a → bool` 或 `a, b → bool` | 逻辑取反/成员检查 |
+| `HANDLE_CAST` | 12 | `S: cast_type` | `val → cast(val)` | 强制类型转换 |
+| `HANDLE_FUNC` | 13 | `N: pop_len, F: func_name` | `arg1, ..., argN → result` | 调用内建函数 |
+| `HANDLE_INTERACT` | 14 | `S: interact_type[, R: ref_type]` | `args... → result` | 游戏交互 |
+| `STORE_RETURN_VAL` | 15 | 无 | `val →` | 弹出栈顶保存为返回值 |
+| `PROGRAM_STOP_RUN` | 16 | 无 | — | 终止虚拟机执行 |
+| `INTERNAL_PANIC` | 17 | `E: error_msg` | — | 抛出内部运行时错误 |
+
+---
+
+> **文档版本**: 1.0
+> **生成日期**: 2026-08-09
+> **基于代码版本**: 0.0.3 (commit `efa3add`)
